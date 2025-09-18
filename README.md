@@ -1,6 +1,6 @@
 # Siege Utils
 
-A Chrome extension that improves the siege website experience.
+A Browser extension (supports Chrome, Firefox, Safari) that improves the siege website experience.
 
 ## Features
 
