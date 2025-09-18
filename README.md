@@ -2,6 +2,10 @@
 
 A Chrome extension that improves the siege website experience.
 
+## Features
+
+- Currently makes the shop less clunkier & more usable following a tabs & grid format.
+
 ## Installation
 
 1. Download or clone this repository
