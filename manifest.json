@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Siege Utils",
+  "version": "1.0.0",
+  "description": "Enhance the Siege website experience with better UI & features",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://siege.hackclub.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://siege.hackclub.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "icons": {
+    "64": "icon64.png",
+    "128": "icon128.png"
+  }
+}
