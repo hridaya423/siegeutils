@@ -50,6 +50,227 @@ const utils = {
   }
 };
 
+const projectStats = {
+  getStoredStats() {
+    const stored = localStorage.getItem('siege-utils-project-stats');
+    return stored ? JSON.parse(stored) : {};
+  },
+
+  saveStats(stats) {
+    localStorage.setItem('siege-utils-project-stats', JSON.stringify(stats));
+  },
+
+  parseTimeString(timeStr) {
+    const match = timeStr.match(/(\d+)h\s*(\d+)m/);
+    if (!match) return 0;
+    const hours = parseInt(match[1]) || 0;
+    const minutes = parseInt(match[2]) || 0;
+    return hours + (minutes / 60);
+  },
+
+  parseCoins(coinStr) {
+    const match = coinStr.match(/(\d+\.?\d*)/);
+    return match ? parseFloat(match[1]) : 0;
+  },
+
+  parseWeek(weekStr) {
+    const match = weekStr.match(/Week (\d+)/);
+    return match ? parseInt(match[1]) : 1;
+  },
+
+  estimateReviewerAndVoterStats(totalCoins, week, hours) {
+    if (!totalCoins || !hours) return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
+
+    let baseMultiplier;
+    if (week <= 4) {
+      baseMultiplier = 2;
+    } else {
+      if (hours <= 10) {
+        baseMultiplier = 0.5;
+      } else {
+        baseMultiplier = (0.5 * 10 + 1 * (hours - 10)) / hours;
+      }
+    }
+
+    const target = totalCoins / (baseMultiplier * hours);
+
+    const validCombinations = [];
+
+    for (let rb = 1.0; rb <= 3.0; rb = Math.round((rb + 0.1) * 10) / 10) {
+      const avgStars = target / rb;
+
+      if (avgStars >= 1.0 && avgStars <= 5.0) {
+        const expectedStars = 1.0 + (rb - 1.0) * (4.0 / 2.0);
+        const correlationDeviation = Math.abs(avgStars - expectedStars);
+
+        validCombinations.push({
+          reviewerBonus: rb,
+          avgVoterStars: avgStars,
+          correlationDeviation: correlationDeviation
+        });
+      }
+    }
+
+    if (validCombinations.length === 0) {
+      return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
+    }
+
+    validCombinations.sort((a, b) => a.correlationDeviation - b.correlationDeviation);
+
+    const topResults = validCombinations.slice(0, Math.min(5, validCombinations.length));
+
+    let totalRb = 0;
+    let totalStars = 0;
+
+    topResults.forEach((result) => {
+      totalRb += result.reviewerBonus;
+      totalStars += result.avgVoterStars;
+    });
+
+    const avgReviewerBonus = totalRb / topResults.length;
+    const avgVoterStars = totalStars / topResults.length;
+
+    return {
+      reviewerBonus: Math.round(avgReviewerBonus * 100) / 100,
+      avgVoterStars: Math.round(avgVoterStars * 100) / 100
+    };
+  },
+
+  calculateEfficiency(totalCoins, hours) {
+    if (!hours) return 0;
+    return totalCoins / hours;
+  },
+
+
+  async extractProjectData(projectCard) {
+    const projectId = projectCard.id.replace('project_', '');
+    const titleElement = projectCard.querySelector('.project-title');
+    const badgeElement = projectCard.querySelector('.project-badge');
+    const timeElement = projectCard.querySelector('.project-time');
+    const valueElement = projectCard.querySelector('.project-status-indicator');
+
+    if (!titleElement || !timeElement || !valueElement) {
+      return null;
+    }
+
+    const title = titleElement.textContent.trim();
+    const week = badgeElement ? this.parseWeek(badgeElement.textContent) : 1;
+    const timeStr = timeElement.textContent.replace('Time spent: ', '');
+    const hours = this.parseTimeString(timeStr);
+    const valueStr = valueElement.textContent;
+    const totalCoins = this.parseCoins(valueStr);
+    if (!totalCoins || totalCoins === 0) {
+      return null;
+    }
+
+    if (!hours || hours === 0) {
+      return null;
+    }
+
+    let stats = this.getStoredStats();
+
+    const estimates = this.estimateReviewerAndVoterStats(totalCoins, week, hours);
+    const coinsPerHour = this.calculateEfficiency(totalCoins, hours);
+
+    const projectData = {
+      projectId,
+      title,
+      week,
+      hours,
+      totalCoins,
+      avgScore: estimates.avgVoterStars,
+      reviewerBonus: estimates.reviewerBonus,
+      coinsPerHour
+    };
+
+    stats[`project_${projectId}`] = {
+      avg_score: estimates.avgVoterStars,
+      reviewer_bonus: estimates.reviewerBonus,
+      week: week,
+      hours: parseFloat(hours.toFixed(2)),
+      total_coins: totalCoins,
+      coins_per_hour: parseFloat(coinsPerHour.toFixed(2))
+    };
+    this.saveStats(stats);
+
+    return projectData;
+  },
+
+  createEfficiencyBadge(projectData) {
+    const { coinsPerHour, reviewerBonus, avgScore, totalCoins, hours } = projectData;
+    const maxEfficiency = 30;
+    const percentage = Math.min((coinsPerHour / maxEfficiency) * 100, 100);
+
+    let label = 'Low efficiency';
+    if (percentage >= 70) {
+      label = 'High efficiency';
+    } else if (percentage >= 40) {
+      label = 'Medium efficiency';
+    } else {
+      label = 'Low efficiency';
+    }
+
+    return `
+      <div class="siege-efficiency-box" style="
+        margin-top: 0.5rem;
+        padding: 1rem;
+        position: relative;
+        border: 3px solid rgba(64, 43, 32, 0.75);
+        background: transparent;
+        transition: all 160ms ease;
+      ">
+
+        <div style="position: relative; z-index: 1; text-align: center;">
+          <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.25rem;">
+             ${coinsPerHour.toFixed(1)} 🪙/hour
+          </div>
+          <div style="font-size: 0.75rem; opacity: 0.8; margin-bottom: 0.25rem;">
+            ${label} • top ${(100 - percentage).toFixed(0)}%
+          </div>
+          <div style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.2rem;">
+            ~×${reviewerBonus.toFixed(2)} reviewer bonus
+          </div>
+          <div style="font-size: 0.9rem; font-weight: 500;">
+            ~${avgScore}/5 ⭐ avg voter stars
+          </div>
+          <div style="font-size: 0.6rem; font-weight: 500;">
+            Please do not fully trust this data, it can be inaccurate.
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  createDetailedStats(projectData) {
+    const { avgScore, reviewerBonus, week, hours, totalCoins, coinsPerHour } = projectData;
+    const maxEfficiency = 30;
+    const percentage = Math.min((coinsPerHour / maxEfficiency) * 100, 100);
+    const efficiencyColor = percentage >= 70 ? '#059669' : percentage >= 40 ? '#d97706' : '#dc2626';
+
+    return `
+      <div class="reviewer-feedback-container">
+        <h3 class="reviewer-feedback-title">Project Stats</h3>
+        <div class="reviewer-feedback-content siege-project-stats-content">
+          <div class="siege-project-stats-row">
+            <span class="siege-project-stats-metric" style="color: ${efficiencyColor};">${coinsPerHour.toFixed(1)} 🪙/hour</span>
+            <span class="siege-project-stats-secondary">(top ${(100 - percentage).toFixed(0)}%)</span>
+          </div>
+          <div class="siege-project-stats-row">
+            <span class="siege-project-stats-metric">~×${reviewerBonus.toFixed(2)} reviewer bonus</span>
+            <span class="siege-project-stats-metric">~${avgScore}/5 ⭐ avg voter stars</span>
+          </div>
+        </div>
+        <div class="siege-project-stats-footer">
+          Week ${week} • ${hours.toFixed(1)}h total • ${totalCoins} 🪙 earned
+        </div>
+        <div style="font-size: 0.6rem; font-weight: 500;">
+            Please do not fully trust this data, it can be inaccurate.
+          </div>
+      </div>
+    `;
+  }
+};
+
 const api = {
   async loadTechTreeData() {
     try {
@@ -443,8 +664,233 @@ async function init() {
   }
 }
 
+async function enhanceProjectCards() {
+  const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
+
+  for (const card of projectCards) {
+    if (card.querySelector('.siege-efficiency-box')) continue; 
+
+    try {
+      const projectData = await projectStats.extractProjectData(card);
+
+      if (projectData) {
+        const reviewerFeedback = card.querySelector('.reviewer-feedback-indicator');
+        const projectFooter = card.querySelector('.project-footer');
+        const targetElement = reviewerFeedback || projectFooter;
+
+        if (targetElement) {
+          const badge = projectStats.createEfficiencyBadge(projectData);
+          targetElement.insertAdjacentHTML('afterend', badge);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to enhance project card:', error);
+    }
+  }
+}
+
+async function enhanceProjectPage() {
+  const urlMatch = window.location.pathname.match(/\/projects\/(\d+)/);
+  if (!urlMatch) {
+    return;
+  }
+
+  const projectId = urlMatch[1];
+
+  if (document.querySelector('.siege-project-stats-content')) {
+    return;
+  }
+
+  const stats = projectStats.getStoredStats();
+  const storedData = stats[`project_${projectId}`];
+
+  if (storedData) {
+
+    const projectData = {
+      projectId,
+      week: storedData.week,
+      hours: storedData.hours,
+      totalCoins: storedData.total_coins,
+      avgScore: storedData.avg_score,
+      reviewerBonus: storedData.reviewer_bonus,
+      coinsPerHour: storedData.coins_per_hour
+    };
+
+    const detailedStats = projectStats.createDetailedStats(projectData);
+
+    const reviewerFeedback = document.querySelector('.reviewer-feedback-container');
+    if (reviewerFeedback) {
+      reviewerFeedback.insertAdjacentHTML('beforebegin', detailedStats);
+    } else {
+      const projectDetails = document.querySelector('.project-details');
+      if (projectDetails) {
+        projectDetails.insertAdjacentHTML('beforeend', detailedStats);
+      }
+    }
+    return;
+  }
+
+
+  try {
+    const timeElement = document.querySelector('.project-week-time');
+    const valueElement = document.querySelector('.project-status-display');
+    const titleElement = document.querySelector('.projects-title');
+    const avgScoreElement = document.querySelector('.submit-button.submit-button--disabled');
+
+    if (!timeElement || !valueElement || !titleElement || !avgScoreElement) {
+      return;
+    }
+
+    const timeStr = timeElement.textContent.replace('Time spent: ', '');
+    const hours = projectStats.parseTimeString(timeStr);
+    const valueStr = valueElement.textContent;
+    const totalCoins = projectStats.parseCoins(valueStr);
+    const titleStr = titleElement.textContent;
+    const week = projectStats.parseWeek(titleStr);
+
+    const avgScoreMatch = avgScoreElement.textContent.match(/Avg\.\s*Score:\s*([\d.]+)/);
+    const avgScore = avgScoreMatch ? parseFloat(avgScoreMatch[1]) : null;
+
+    if (!hours || !totalCoins) {
+      return;
+    }
+
+    const estimates = projectStats.estimateReviewerAndVoterStats(totalCoins, week, hours);
+    const coinsPerHour = projectStats.calculateEfficiency(totalCoins, hours);
+
+    const projectData = {
+      projectId,
+      week,
+      hours,
+      totalCoins,
+      avgScore: avgScore || estimates.avgVoterStars,
+      reviewerBonus: estimates.reviewerBonus,
+      coinsPerHour
+    };
+
+    let stats = projectStats.getStoredStats();
+    stats[`project_${projectId}`] = {
+      avg_score: avgScore || estimates.avgVoterStars,
+      reviewer_bonus: estimates.reviewerBonus,
+      week: week,
+      hours: hours,
+      total_coins: totalCoins,
+      coins_per_hour: coinsPerHour
+    };
+    projectStats.saveStats(stats);
+
+    const detailedStats = projectStats.createDetailedStats(projectData);
+
+    const reviewerFeedback = document.querySelector('.reviewer-feedback-indicator') ||
+                            document.querySelector('[class*="reviewer"]') ||
+                            document.querySelector('[class*="feedback"]');
+
+    let insertionPoint;
+    if (reviewerFeedback) {
+      insertionPoint = reviewerFeedback;
+      insertionPoint.insertAdjacentHTML('beforebegin', detailedStats);
+    } else {
+      insertionPoint = document.querySelector('.project-details') ||
+                      document.querySelector('.project-content') ||
+                      document.querySelector('.project-info') ||
+                      document.querySelector('main') ||
+                      document.querySelector('[class*="project"]') ||
+                      document.querySelector('[class*="content"]');
+
+
+      if (insertionPoint) {
+        insertionPoint.insertAdjacentHTML('beforeend', detailedStats);
+      } else {
+        document.body.insertAdjacentHTML('beforeend', detailedStats);
+      }
+    }
+
+  } catch (error) {
+    console.error('Failed to enhance project page:', error);
+  }
+}
+
+async function initProjectStats() {
+  if (window.location.pathname === '/projects') {
+    await enhanceProjectCards();
+  } else if (window.location.pathname.match(/\/projects\/\d+/)) {
+    let retries = 0;
+    const maxRetries = 5;
+
+    while (retries < maxRetries) {
+      try {
+        await enhanceProjectPage();
+        break;
+      } catch (error) {
+        retries++;
+        if (retries < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  let lastPath = window.location.pathname;
+  let navigationTimeout = null;
+
+  function handleNavigation() {
+    if (window.location.pathname !== lastPath) {
+      lastPath = window.location.pathname;
+
+      if (navigationTimeout) {
+        clearTimeout(navigationTimeout);
+      }
+
+      navigationTimeout = setTimeout(() => {
+        if (window.location.pathname.startsWith('/market')) {
+          init();
+        }
+
+        initProjectStats();
+        navigationTimeout = null;
+      }, 300);
+    }
+  }
+
+  document.addEventListener('turbo:load', handleNavigation);
+  document.addEventListener('turbo:render', handleNavigation);
+  document.addEventListener('turbo:visit', handleNavigation);
+  document.addEventListener('turbo:frame-load', handleNavigation);
+
+  document.addEventListener('turbolinks:load', handleNavigation);
+  document.addEventListener('turbolinks:render', handleNavigation);
+  document.addEventListener('turbolinks:visit', handleNavigation);
+
+  new MutationObserver(handleNavigation).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('popstate', handleNavigation);
+
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function() {
+    originalPushState.apply(history, arguments);
+    setTimeout(handleNavigation, 50);
+  };
+
+  history.replaceState = function() {
+    originalReplaceState.apply(history, arguments);
+    setTimeout(handleNavigation, 50);
+  };
+}
+
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.location.pathname.startsWith('/market')) {
+      init();
+    }
+    initProjectStats();
+  });
 } else {
-  init();
+  if (window.location.pathname.startsWith('/market')) {
+    init();
+  }
+  initProjectStats();
 }
