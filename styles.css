@@ -263,6 +263,46 @@ body, html {
   justify-content: center;
 }
 
+.siege-button {
+  padding: 0.75rem 1.5rem;
+  border: 2px solid rgba(64, 43, 32, 0.75);
+  background: transparent;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 160ms ease;
+  position: relative;
+  min-width: 100px;
+}
+
+.siege-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.siege-button[data-action="cancel"] {
+  background: rgba(128, 128, 128, 0.1);
+  color: #666;
+  border-color: rgba(128, 128, 128, 0.5);
+}
+
+.siege-button[data-action="cancel"]:hover {
+  background: rgba(128, 128, 128, 0.2);
+  border-color: rgba(128, 128, 128, 0.7);
+}
+
+.siege-button[data-action="confirm"] {
+  background: rgba(34, 139, 34, 0.15);
+  color: #228B22;
+  border-color: rgba(34, 139, 34, 0.5);
+}
+
+.siege-button[data-action="confirm"]:hover {
+  background: rgba(34, 139, 34, 0.25);
+  border-color: rgba(34, 139, 34, 0.7);
+}
+
 .siege-loading {
   display: flex;
   justify-content: center;
