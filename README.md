@@ -5,6 +5,8 @@ A Browser extension (supports Chrome, Firefox, Safari) that improves the siege w
 ## Features
 
 - Currently makes the shop less clunkier & more usable following a tabs & grid format.
+- Estimates your reviewer bonus & your avg voter stars
+- Shows coins/h, estimated reviewer bonus, avg stars on project cards & page.
   
 ## Installation
 
