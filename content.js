@@ -4,6 +4,7 @@ let userCoins = 0;
 let userPurchases = [];
 let currentCategory = 'laptop';
 let selectedDevice = null;
+let userGoals = [];
 
 const utils = {
   getCSRFToken() {
@@ -47,6 +48,18 @@ const utils = {
       return null;
     }
     return techTreeData[category].initialNode.options[0].id;
+  },
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
+
+  unescapeHtml(text) {
+    const div = document.createElement('div');
+    div.innerHTML = text;
+    return div.textContent;
   }
 };
 
@@ -284,6 +297,237 @@ const projectStats = {
   }
 };
 
+const goals = {
+  getStoredGoals() {
+    const stored = localStorage.getItem('siege-utils-goals');
+    return stored ? JSON.parse(stored) : [];
+  },
+
+  saveGoals(goals) {
+    localStorage.setItem('siege-utils-goals', JSON.stringify(goals));
+  },
+
+  addGoal(item, autoAdded = false) {
+    const goals = this.getStoredGoals();
+
+    const existingGoal = goals.find(g => g.title === item.title);
+    if (existingGoal) {
+      return false;
+    }
+
+    const goal = {
+      id: Date.now() + Math.random(),
+      title: item.title,
+      price: item.price,
+      description: item.description,
+      category: currentCategory,
+      device: selectedDevice,
+      requires: item.requires,
+      autoAdded: autoAdded,
+      dateAdded: new Date().toISOString()
+    };
+
+    goals.push(goal);
+
+    if (item.requires && !autoAdded) {
+      this.autoAddRequiredItems(item.requires, goals);
+    }
+
+    this.saveGoals(goals);
+    userGoals = goals;
+    return true;
+  },
+
+  autoAddRequiredItems(requiresText, currentGoals, processedItems = new Set()) {
+    if (!techTreeData || !requiresText) return;
+
+    if (processedItems.has(requiresText)) return;
+    processedItems.add(requiresText);
+
+    const requiredItems = this.findItemsByRequirement(requiresText);
+
+    requiredItems.forEach(reqItem => {
+      const alreadyInGoals = currentGoals.find(g => g.title === reqItem.title);
+      if (!alreadyInGoals) {
+        const reqGoal = {
+          id: Date.now() + Math.random(),
+          title: reqItem.title,
+          price: reqItem.price,
+          description: reqItem.description,
+          category: reqItem.category,
+          device: reqItem.device,
+          requires: reqItem.requires,
+          autoAdded: true,
+          dateAdded: new Date().toISOString()
+        };
+        currentGoals.push(reqGoal);
+
+        if (reqItem.requires) {
+          this.autoAddRequiredItems(reqItem.requires, currentGoals, processedItems);
+        }
+      }
+    });
+  },
+
+  findItemsByRequirement(requiresText) {
+    const requiredItems = [];
+
+    Object.keys(techTreeData).forEach(category => {
+      if (techTreeData[category].branches) {
+        Object.keys(techTreeData[category].branches).forEach(device => {
+          const items = techTreeData[category].branches[device];
+          Object.values(items).forEach(item => {
+            if (item.title && requiresText.includes(item.title)) {
+              requiredItems.push({...item, category, device});
+            }
+          });
+        });
+      }
+    });
+
+    return requiredItems;
+  },
+
+  removeGoal(goalId) {
+    const goals = this.getStoredGoals();
+    const goalToRemove = goals.find(g => g.id === goalId);
+
+    if (!goalToRemove) return;
+
+    let filteredGoals = goals.filter(g => g.id !== goalId);
+
+    filteredGoals = this.cleanupOrphanedDependencies(filteredGoals);
+
+    this.saveGoals(filteredGoals);
+    userGoals = filteredGoals;
+  },
+
+  cleanupOrphanedDependencies(goals) {
+    const manualGoals = goals.filter(g => !g.autoAdded);
+
+    const neededRequirements = new Set();
+    manualGoals.forEach(goal => {
+      if (goal.requires) {
+        this.collectAllRequirements(goal.requires, neededRequirements);
+      }
+    });
+
+    const cleanedGoals = goals.filter(goal => {
+      if (!goal.autoAdded) return true;
+      return neededRequirements.has(goal.title);
+    });
+
+    return cleanedGoals;
+  },
+
+  collectAllRequirements(requiresText, neededSet, processedItems = new Set()) {
+    if (!requiresText || processedItems.has(requiresText)) return;
+    processedItems.add(requiresText);
+
+    const requiredItems = this.findItemsByRequirement(requiresText);
+    requiredItems.forEach(item => {
+      neededSet.add(item.title);
+      if (item.requires) {
+        this.collectAllRequirements(item.requires, neededSet, processedItems);
+      }
+    });
+  },
+
+  getTotalCost() {
+    const goals = this.getStoredGoals();
+    return goals.reduce((total, goal) => {
+      if (!utils.isPurchased(goal.title)) {
+        return total + goal.price;
+      }
+      return total;
+    }, 0);
+  },
+
+  getProgress() {
+    const totalCost = this.getTotalCost();
+    if (totalCost === 0) return { current: 0, total: 0, percentage: 100 };
+
+    const current = Math.min(userCoins, totalCost);
+    const percentage = Math.min((current / totalCost) * 100, 100);
+
+    return {
+      current,
+      total: totalCost,
+      percentage: Math.round(percentage)
+    };
+  },
+
+  createProgressBar() {
+    const progress = this.getProgress();
+    const goals = this.getStoredGoals();
+
+    if (goals.length === 0) return '';
+
+    return `
+      <div class="siege-goals-progress" style="
+        margin: 1rem 0;
+        padding: 1rem;
+        background: rgba(64, 43, 32, 0.1);
+        border: 2px solid rgba(64, 43, 32, 0.3);
+        border-radius: 8px;
+      ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <h3 style="margin: 0; font-size: 1rem; font-weight: 600;">Goals Progress</h3>
+          <span style="font-size: 0.9rem; font-weight: 500;">${utils.formatCoins(progress.current)} / ${utils.formatCoins(progress.total)}</span>
+        </div>
+        <div style="
+          width: 100%;
+          height: 8px;
+          background: rgba(0, 0, 0, 0.1);
+          border-radius: 4px;
+          overflow: hidden;
+        ">
+          <div style="
+            width: ${progress.percentage}%;
+            height: 100%;
+            background: linear-gradient(90deg, #059669, #34d399);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+          "></div>
+        </div>
+        <div style="margin-top: 0.5rem; font-size: 0.8rem; opacity: 0.8;">
+          ${progress.percentage}% complete • ${goals.length} goal${goals.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+    `;
+  },
+
+
+  createGoalButton(item) {
+    const goals = this.getStoredGoals();
+    const hasGoal = goals.find(g => g.title === item.title);
+    const isPurchased = utils.isPurchased(item.title);
+
+    if (isPurchased) return '';
+
+    const buttonText = hasGoal ? 'Remove Goal' : 'Add Goal';
+    const buttonClass = hasGoal ? 'siege-goal-button-remove' : 'siege-goal-button-add';
+
+    return `
+      <button class="siege-goal-button ${buttonClass}" data-action="${hasGoal ? 'remove' : 'add'}" data-goal-id="${hasGoal ? hasGoal.id : ''}" style="
+        padding: 0.4rem 0.8rem;
+        border: 1px solid ${hasGoal ? '#dc2626' : '#059669'};
+        background: ${hasGoal ? 'rgba(220, 38, 38, 0.1)' : 'rgba(5, 150, 105, 0.1)'};
+        color: ${hasGoal ? '#dc2626' : '#059669'};
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-top: 0.5rem;
+        width: 100%;
+      ">
+        ${buttonText}
+      </button>
+    `;
+  }
+};
+
 const api = {
   async loadTechTreeData() {
     try {
@@ -302,6 +546,7 @@ const api = {
 
       userCoins = coins.coins || 0;
       userPurchases = purchases.purchases || [];
+      userGoals = goals.getStoredGoals();
       return true;
     } catch (error) {
       return false;
@@ -397,7 +642,7 @@ const components = {
     const cardClass = `siege-item-card ${!affordable && !purchased ? 'disabled' : ''}`;
 
     return `
-      <div class="${cardClass}" data-item='${JSON.stringify(item)}'>
+      <div class="${cardClass}" data-item="${encodeURIComponent(JSON.stringify(item))}">
         <div class="siege-item-header">
           ${item.image ? `<div class="siege-item-image"><img src="${item.image}" alt="${item.title}" /></div>` : ''}
           <div class="siege-item-header-text">
@@ -410,6 +655,7 @@ const components = {
           <span class="siege-status-badge ${statusClass}">${statusText}</span>
           ${item.requires ? `<span class="siege-status-badge">Requires: ${item.requires}</span>` : ''}
         </div>
+        ${goals.createGoalButton(item)}
       </div>
     `;
   },
@@ -434,11 +680,23 @@ const components = {
     return `
       <div class="siege-shop-container">
         ${this.createHeader()}
+        ${goals.createProgressBar()}
         ${this.createCategoryNav()}
         <main class="siege-shop-content">
           ${content}
         </main>
       </div>
+      <style>
+        .siege-goals-progress [style*="position: absolute"][style*="left:"] {
+          cursor: pointer;
+        }
+        .siege-goals-progress [style*="position: absolute"][style*="left:"]:hover .goal-tooltip {
+          opacity: 1 !important;
+        }
+        .siege-goals-progress [style*="position: absolute"][style*="left:"]:hover > div:first-child {
+          transform: scale(1.1) !important;
+        }
+      </style>
     `;
   },
 
@@ -576,7 +834,7 @@ const handlers = {
     if (!card || card.classList.contains('disabled')) return;
 
     try {
-      const itemData = JSON.parse(card.dataset.item);
+      const itemData = JSON.parse(decodeURIComponent(card.dataset.item));
 
       if (utils.isPurchased(itemData.title)) {
         components.showToast('Item already purchased!');
@@ -618,6 +876,41 @@ const handlers = {
     } catch (error) {
       components.showToast('Purchase failed');
     }
+  },
+
+  async handleGoalButtonClick(event) {
+    const button = event.target.closest('.siege-goal-button');
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const action = button.dataset.action;
+    const goalId = button.dataset.goalId;
+
+    if (action === 'remove' && goalId) {
+      goals.removeGoal(parseFloat(goalId));
+      components.showToast('Goal removed!');
+      await render();
+    } else if (action === 'add') {
+      const card = button.closest('.siege-item-card');
+      if (!card) return;
+
+      try {
+        const decodedJson = decodeURIComponent(card.dataset.item);
+        const itemData = JSON.parse(decodedJson);
+        const success = goals.addGoal(itemData);
+
+        if (success) {
+          components.showToast('Goal added!');
+          await render();
+        } else {
+          components.showToast('Goal already exists!');
+        }
+      } catch (error) {
+        components.showToast('Failed to add goal');
+      }
+    }
   }
 };
 
@@ -633,6 +926,7 @@ async function render() {
   container.addEventListener('click', handlers.handleCategoryChange);
   container.addEventListener('change', handlers.handleDeviceChange);
   container.addEventListener('click', handlers.handleItemClick);
+  container.addEventListener('click', handlers.handleGoalButtonClick);
 }
 
 async function init() {
