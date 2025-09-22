@@ -78,6 +78,15 @@ const projectStats = {
     return match ? parseInt(match[1]) : 1;
   },
 
+  generateDiscreteVoterAverages() {
+    const averages = new Set();
+    for (let sum = 10; sum <= 50; sum++) {
+      const avg = sum / 10;
+      averages.add(Math.round(avg * 100) / 100);
+    }
+    return Array.from(averages).sort((a, b) => a - b);
+  },
+
   estimateReviewerAndVoterStats(totalCoins, week, hours) {
     if (!totalCoins || !hours) return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
 
@@ -93,21 +102,25 @@ const projectStats = {
     }
 
     const target = totalCoins / (baseMultiplier * hours);
-
     const validCombinations = [];
+    const discreteVoterAverages = this.generateDiscreteVoterAverages();
 
     for (let rb = 1.0; rb <= 3.0; rb = Math.round((rb + 0.1) * 10) / 10) {
-      const avgStars = target / rb;
+      for (const avgStars of discreteVoterAverages) {
+        const calculatedTarget = rb * avgStars;
+        const targetDeviation = Math.abs(calculatedTarget - target);
 
-      if (avgStars >= 1.0 && avgStars <= 5.0) {
-        const expectedStars = 1.0 + (rb - 1.0) * (4.0 / 2.0);
-        const correlationDeviation = Math.abs(avgStars - expectedStars);
+        if (targetDeviation / target < 0.15) {
+          const biasCorrection = (rb - 1.5) * 0.2 - (avgStars - 3.0) * 0.1;
+          const adjustedDeviation = targetDeviation - biasCorrection;
 
-        validCombinations.push({
-          reviewerBonus: rb,
-          avgVoterStars: avgStars,
-          correlationDeviation: correlationDeviation
-        });
+          validCombinations.push({
+            reviewerBonus: rb,
+            avgVoterStars: avgStars,
+            correlationDeviation: adjustedDeviation,
+            targetDeviation: targetDeviation
+          });
+        }
       }
     }
 
@@ -117,7 +130,7 @@ const projectStats = {
 
     validCombinations.sort((a, b) => a.correlationDeviation - b.correlationDeviation);
 
-    const topResults = validCombinations.slice(0, Math.min(5, validCombinations.length));
+    const topResults = validCombinations.slice(0, Math.min(3, validCombinations.length));
 
     let totalRb = 0;
     let totalStars = 0;
