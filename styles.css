@@ -356,3 +356,15 @@ body, html {
   margin-top: 0.3rem;
   text-align: center;
 }
+
+.siege-goals-progress [style*="position: absolute"][style*="left:"] {
+  cursor: pointer;
+}
+
+.siege-goals-progress [style*="position: absolute"][style*="left:"]:hover .goal-tooltip {
+  opacity: 1 !important;
+}
+
+.siege-goals-progress [style*="position: absolute"][style*="left:"]:hover > div:first-child {
+  transform: scale(1.1) !important;
+}

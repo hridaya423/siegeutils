@@ -60,6 +60,23 @@ const utils = {
     const div = document.createElement('div');
     div.innerHTML = text;
     return div.textContent;
+  },
+
+  getCurrentWeek() {
+    const week4StartDate = new Date('2025-09-22');
+    const now = new Date();
+    const timeDiff = now.getTime() - week4StartDate.getTime();
+    const daysDiff = Math.floor(timeDiff / (1000 * 3600 * 24));
+    const weeksDiff = Math.floor(daysDiff / 7);
+
+    const currentWeek = 4 + weeksDiff;
+    return currentWeek;
+  },
+
+  formatHours(totalHours) {
+    const hours = Math.floor(totalHours);
+    const minutes = Math.round((totalHours - hours) * 60);
+    return `${hours}h ${minutes}m`;
   }
 };
 
@@ -74,11 +91,18 @@ const projectStats = {
   },
 
   parseTimeString(timeStr) {
-    const match = timeStr.match(/(\d+)h\s*(\d+)m/);
-    if (!match) return 0;
-    const hours = parseInt(match[1]) || 0;
-    const minutes = parseInt(match[2]) || 0;
-    return hours + (minutes / 60);
+    let hours = 0;
+    let minutes = 0;
+
+    const hourMatch = timeStr.match(/(\d+)h/);
+    const minuteMatch = timeStr.match(/(\d+)m/);
+
+    if (hourMatch) hours = parseInt(hourMatch[1]) || 0;
+    if (minuteMatch) minutes = parseInt(minuteMatch[1]) || 0;
+
+    const totalHours = hours + (minutes / 60);
+
+    return totalHours;
   },
 
   parseCoins(coinStr) {
@@ -185,9 +209,6 @@ const projectStats = {
     const hours = this.parseTimeString(timeStr);
     const valueStr = valueElement.textContent;
     const totalCoins = this.parseCoins(valueStr);
-    if (!totalCoins || totalCoins === 0) {
-      return null;
-    }
 
     if (!hours || hours === 0) {
       return null;
@@ -195,8 +216,13 @@ const projectStats = {
 
     let stats = this.getStoredStats();
 
-    const estimates = this.estimateReviewerAndVoterStats(totalCoins, week, hours);
-    const coinsPerHour = this.calculateEfficiency(totalCoins, hours);
+    let estimates = { avgVoterStars: 3.0, reviewerBonus: 2.0 };
+    let coinsPerHour = 0;
+
+    if (totalCoins > 0) {
+      estimates = this.estimateReviewerAndVoterStats(totalCoins, week, hours);
+      coinsPerHour = this.calculateEfficiency(totalCoins, hours);
+    }
 
     const projectData = {
       projectId,
@@ -209,21 +235,69 @@ const projectStats = {
       coinsPerHour
     };
 
-    stats[`project_${projectId}`] = {
-      avg_score: estimates.avgVoterStars,
-      reviewer_bonus: estimates.reviewerBonus,
-      week: week,
-      hours: parseFloat(hours.toFixed(2)),
-      total_coins: totalCoins,
-      coins_per_hour: parseFloat(coinsPerHour.toFixed(2))
-    };
-    this.saveStats(stats);
+    if (totalCoins > 0) {
+      stats[`project_${projectId}`] = {
+        avg_score: estimates.avgVoterStars,
+        reviewer_bonus: estimates.reviewerBonus,
+        week: week,
+        hours: parseFloat(hours.toFixed(2)),
+        total_coins: totalCoins,
+        coins_per_hour: parseFloat(coinsPerHour.toFixed(2))
+      };
+      this.saveStats(stats);
+    }
 
     return projectData;
   },
 
   createEfficiencyBadge(projectData) {
     const { coinsPerHour, reviewerBonus, avgScore, totalCoins, hours } = projectData;
+
+    if (totalCoins === 0) {
+      const avgEfficiency = this.getAverageEfficiency();
+      const projectedCoins = Math.round(hours * avgEfficiency);
+
+      const stats = this.getStoredStats();
+      const pastProjects = Object.values(stats);
+
+      let avgReviewerBonus = 1.5;
+      let avgVoterStars = 3.0;
+
+      if (pastProjects.length > 0) {
+        avgReviewerBonus = pastProjects.reduce((sum, p) => sum + p.reviewer_bonus, 0) / pastProjects.length;
+        avgVoterStars = pastProjects.reduce((sum, p) => sum + p.avg_score, 0) / pastProjects.length;
+      }
+
+      return `
+        <div class="siege-efficiency-box" style="
+          margin-top: 0.5rem;
+          padding: 1rem;
+          position: relative;
+          border: 3px solid rgba(59, 130, 246, 0.75);
+          background: transparent;
+          transition: all 160ms ease;
+        ">
+          <div style="position: relative; z-index: 1; text-align: center;">
+            <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; color: #3b82f6;">
+              ~${projectedCoins} 🪙 projected
+            </div>
+            <div style="font-size: 1rem; margin-bottom: 0.25rem;">
+              ${hours.toFixed(1)}h spent • ${avgEfficiency.toFixed(1)} 🪙/h avg
+            </div>
+            <div style="font-size: 1rem; font-weight: 500; margin-bottom: 0.2rem;">
+              ~×${avgReviewerBonus.toFixed(2)} reviewer bonus
+            </div>
+            <div style="font-size: 1rem; font-weight: 500;">
+              ~${avgVoterStars.toFixed(1)}/5 ⭐ avg voter stars
+            </div>
+            <div style="font-size: 0.8rem; font-weight: 500; opacity: 0.6; margin-top: 0.25rem;">
+              🚧 Unshipped - projections based on your past efficiency
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     const maxEfficiency = 30;
     const percentage = Math.min((coinsPerHour / maxEfficiency) * 100, 100);
 
@@ -260,7 +334,7 @@ const projectStats = {
             ~${avgScore}/5 ⭐ avg voter stars
           </div>
           <div style="font-size: 0.6rem; font-weight: 500;">
-            Please do not fully trust this data, it can be inaccurate.
+            Please do not fully trust the reviewer bonus & avg voter star estimates, it can be inaccurate.
           </div>
         </div>
       </div>
@@ -290,8 +364,140 @@ const projectStats = {
           Week ${week} • ${hours.toFixed(1)}h total • ${totalCoins} 🪙 earned
         </div>
         <div style="font-size: 0.6rem; font-weight: 500;">
-            Please do not fully trust this data, it can be inaccurate.
+            Please do not fully trust the reviewer bonus & avg voter star estimates, it can be inaccurate.
           </div>
+      </div>
+    `;
+  },
+
+  getStoredTimeTracking() {
+    const stored = localStorage.getItem('siege-utils-unshipped');
+    const data = stored ? JSON.parse(stored) : {};
+    return data;
+  },
+
+  saveTimeTracking(data) {
+    localStorage.setItem('siege-utils-unshipped', JSON.stringify(data));
+  },
+
+  trackProjectTime(projectId, currentHours) {
+
+    const timeTracking = this.getStoredTimeTracking();
+    const currentWeek = utils.getCurrentWeek();
+
+
+    if (!timeTracking[projectId]) {
+      timeTracking[projectId] = {
+        firstSeen: new Date().toISOString(),
+        week: currentWeek,
+        initialHours: currentHours,
+        snapshots: []
+      };
+    }
+
+    timeTracking[projectId].snapshots.push({
+      timestamp: new Date().toISOString(),
+      hours: currentHours,
+      week: currentWeek
+    });
+
+    if (timeTracking[projectId].snapshots.length > 50) {
+      timeTracking[projectId].snapshots = timeTracking[projectId].snapshots.slice(-50);
+    }
+
+    this.saveTimeTracking(timeTracking);
+  },
+
+  async sideloadProjectTime(projectId) {
+    try {
+      const response = await fetch(`https://siege.hackclub.com/projects/${projectId}`, {
+        headers: {
+          'X-CSRF-Token': utils.getCSRFToken()
+        }
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const timeElement = doc.querySelector('.project-week-time');
+
+      if (timeElement) {
+        const fullText = timeElement.textContent;
+        const timeStr = fullText.replace('Time spent: ', '');
+
+        const hours = this.parseTimeString(timeStr);
+
+        if (hours > 0) {
+          this.trackProjectTime(projectId, hours);
+
+          return hours;
+        }
+      }
+
+      return null;
+
+    } catch (error) {
+      console.error(`Error sideloading project ${projectId}:`, error);
+    }
+  },
+
+  getUnshippedTime(projectId) {
+    const timeTracking = this.getStoredTimeTracking();
+    const projectTracking = timeTracking[projectId];
+
+    if (!projectTracking || projectTracking.snapshots.length === 0) {
+      return 0;
+    }
+
+    const latestSnapshot = projectTracking.snapshots[projectTracking.snapshots.length - 1];
+    const currentWeek = utils.getCurrentWeek();
+
+    if (latestSnapshot.week === currentWeek) {
+      return Math.max(0, latestSnapshot.hours - projectTracking.initialHours);
+    }
+
+    return 0;
+  },
+
+  getAverageEfficiency() {
+    const stats = this.getStoredStats();
+    const efficiencies = Object.values(stats)
+      .map(project => project.coins_per_hour)
+      .filter(efficiency => efficiency > 0);
+
+    if (efficiencies.length === 0) return 12;
+
+    const sum = efficiencies.reduce((acc, eff) => acc + eff, 0);
+    return sum / efficiencies.length;
+  },
+
+  createProjectProjections(projectId, unshippedHours) {
+    if (unshippedHours <= 0) return '';
+
+    const avgEfficiency = this.getAverageEfficiency();
+    const projectedCoins = Math.round(unshippedHours * avgEfficiency);
+
+    return `
+      <div class="siege-projections" style="
+        margin-top: 1rem;
+        padding: 0.75rem;
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 6px;
+      ">
+        <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: #1e40af;">📈 Projections</h4>
+        <div style="font-size: 0.8rem;">
+          <div>Unshipped time: <strong>${utils.formatHours(unshippedHours)}</strong></div>
+          <div>Projected earnings: <strong>~${projectedCoins} 🪙</strong></div>
+          <div style="opacity: 0.7; margin-top: 0.25rem;">
+            Based on ${avgEfficiency.toFixed(1)} 🪙/hour average efficiency
+          </div>
+        </div>
       </div>
     `;
   }
@@ -457,45 +663,175 @@ const goals = {
     };
   },
 
+  getProjectionData() {
+    const progress = this.getProgress();
+    const avgEfficiency = projectStats.getAverageEfficiency();
+    const remainingCoins = progress.total - progress.current;
+    const totalHoursNeeded = remainingCoins / avgEfficiency;
+
+    const timeTracking = projectStats.getStoredTimeTracking();
+    const currentWeek = utils.getCurrentWeek();
+    let totalUnshippedTime = 0;
+    let totalUnshippedCoins = 0;
+
+    Object.keys(timeTracking).forEach(projectId => {
+      const tracking = timeTracking[projectId];
+      if (tracking.snapshots && tracking.snapshots.length > 0) {
+        const latest = tracking.snapshots[tracking.snapshots.length - 1];
+
+        if (latest.week === currentWeek) {
+          const hours = latest.hours;
+          const projectedCoins = Math.round(hours * avgEfficiency);
+
+          totalUnshippedTime += hours;
+          totalUnshippedCoins += projectedCoins;
+        }
+      }
+    });
+
+
+    const projectedFromUnshipped = totalUnshippedCoins;
+    const remainingAfterUnshipped = Math.max(0, remainingCoins - projectedFromUnshipped);
+    const additionalHoursNeeded = remainingAfterUnshipped / avgEfficiency;
+    const projectedTotal = progress.current + projectedFromUnshipped;
+    const projectedPercentage = Math.min((projectedTotal / progress.total) * 100, 100);
+
+    return {
+      totalHoursNeeded,
+      totalUnshippedTime,
+      projectedFromUnshipped,
+      remainingAfterUnshipped,
+      additionalHoursNeeded,
+      projectedPercentage: Math.round(projectedPercentage)
+    };
+  },
+
   createProgressBar() {
     const progress = this.getProgress();
     const goals = this.getStoredGoals();
 
     if (goals.length === 0) return '';
 
+    const projectionData = this.getProjectionData();
     return `
       <div class="siege-goals-progress" style="
         margin: 1rem 0;
-        padding: 1rem;
+        padding: 1.25rem;
         background: rgba(64, 43, 32, 0.1);
         border: 2px solid rgba(64, 43, 32, 0.3);
         border-radius: 8px;
       ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <h3 style="margin: 0; font-size: 1rem; font-weight: 600;">Goals Progress</h3>
-          <span style="font-size: 0.9rem; font-weight: 500;">${utils.formatCoins(progress.current)} / ${utils.formatCoins(progress.total)}</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Goals Progress</h3>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="siege-progress-tab active" data-tab="current" style="
+              padding: 0.35rem 0.75rem;
+              border: 1px solid rgba(64, 43, 32, 0.5);
+              background: rgba(64, 43, 32, 0.2);
+              color: #374151;
+              border-radius: 6px;
+              font-size: 0.85rem;
+              font-weight: 500;
+              cursor: pointer;
+              transition: all 0.2s ease;
+            ">Current</button>
+            <button class="siege-progress-tab" data-tab="projected" style="
+              padding: 0.35rem 0.75rem;
+              border: 1px solid rgba(64, 43, 32, 0.3);
+              background: transparent;
+              color: #6b7280;
+              border-radius: 6px;
+              font-size: 0.85rem;
+              font-weight: 500;
+              cursor: pointer;
+              transition: all 0.2s ease;
+            ">Projected</button>
+          </div>
         </div>
-        <div style="
-          width: 100%;
-          height: 8px;
-          background: rgba(0, 0, 0, 0.1);
-          border-radius: 4px;
-          overflow: hidden;
-        ">
+
+        <div class="siege-progress-content" id="current-content">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <span style="font-size: 1.3rem; font-weight: 600;">${utils.formatCoins(progress.current)} / ${utils.formatCoins(progress.total)}</span>
+            <span style="font-size: 1.1rem; font-weight: 500; color: #059669;">${progress.percentage}%</span>
+          </div>
           <div style="
-            width: ${progress.percentage}%;
-            height: 100%;
-            background: linear-gradient(90deg, #059669, #34d399);
-            border-radius: 4px;
-            transition: width 0.3s ease;
-          "></div>
+            width: 100%;
+            height: 24px;
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border: 1px solid rgba(64, 43, 32, 0.2);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+          ">
+            <div style="
+              width: ${Math.max(2, progress.percentage)}%;
+              height: calc(100% - 4px);
+              background: linear-gradient(145deg, #10b981, #059669);
+              border-radius: 10px;
+              margin: 2px;
+              position: absolute;
+              left: 0;
+              top: 0;
+              box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
+              transition: all 0.3s ease;
+            "></div>
+          </div>
+          <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
+            ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(progress.total - progress.current)} remaining • ${utils.formatHours(projectionData.totalHoursNeeded)} needed
+          </div>
         </div>
-        <div style="margin-top: 0.5rem; font-size: 0.8rem; opacity: 0.8;">
-          ${progress.percentage}% complete • ${goals.length} goal${goals.length !== 1 ? 's' : ''}
+
+        <div class="siege-progress-content" id="projected-content" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <span style="font-size: 1.3rem; font-weight: 600;">
+              ${utils.formatCoins(progress.current + projectionData.projectedFromUnshipped)} / ${utils.formatCoins(progress.total)}
+            </span>
+            <span style="font-size: 1.1rem; font-weight: 500; color: #3b82f6;">${projectionData.projectedPercentage}%</span>
+          </div>
+          <div style="
+            width: 100%;
+            height: 24px;
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border: 1px solid rgba(64, 43, 32, 0.2);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+          ">
+            <div style="
+              width: ${Math.max(2, progress.percentage)}%;
+              height: calc(100% - 4px);
+              background: linear-gradient(145deg, #10b981, #059669);
+              border-radius: 10px 0 0 10px;
+              margin: 2px 0 2px 2px;
+              position: absolute;
+              left: 0;
+              top: 0;
+              box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
+              transition: all 0.3s ease;
+            "></div>
+            <div style="
+              width: ${Math.max(1, projectionData.projectedPercentage - progress.percentage)}%;
+              height: calc(100% - 4px);
+              background: linear-gradient(145deg, #60a5fa, #3b82f6);
+              border-radius: 0 10px 10px 0;
+              margin: 2px 2px 2px 0;
+              position: absolute;
+              left: ${progress.percentage}%;
+              top: 0;
+              box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+              transition: all 0.3s ease;
+            "></div>
+          </div>
+          <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
+            ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(projectionData.remainingAfterUnshipped)} remaining • ${utils.formatHours(projectionData.additionalHoursNeeded)} needed
+          </div>
         </div>
       </div>
     `;
   },
+
 
 
   createGoalButton(item) {
@@ -686,17 +1022,6 @@ const components = {
           ${content}
         </main>
       </div>
-      <style>
-        .siege-goals-progress [style*="position: absolute"][style*="left:"] {
-          cursor: pointer;
-        }
-        .siege-goals-progress [style*="position: absolute"][style*="left:"]:hover .goal-tooltip {
-          opacity: 1 !important;
-        }
-        .siege-goals-progress [style*="position: absolute"][style*="left:"]:hover > div:first-child {
-          transform: scale(1.1) !important;
-        }
-      </style>
     `;
   },
 
@@ -911,6 +1236,42 @@ const handlers = {
         components.showToast('Failed to add goal');
       }
     }
+  },
+
+  handleProgressTabClick(event) {
+    const tab = event.target.closest('.siege-progress-tab');
+    if (!tab) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const tabType = tab.dataset.tab;
+    const container = tab.closest('.siege-goals-progress');
+    if (!container) return;
+
+    const allTabs = container.querySelectorAll('.siege-progress-tab');
+    allTabs.forEach(t => {
+      t.classList.remove('active');
+      t.style.background = 'transparent';
+      t.style.color = '#6b7280';
+      t.style.borderColor = 'rgba(64, 43, 32, 0.3)';
+    });
+
+    tab.classList.add('active');
+    tab.style.background = 'rgba(64, 43, 32, 0.2)';
+    tab.style.color = '#374151';
+    tab.style.borderColor = 'rgba(64, 43, 32, 0.5)';
+
+    const currentContent = container.querySelector('#current-content');
+    const projectedContent = container.querySelector('#projected-content');
+
+    if (tabType === 'current') {
+      currentContent.style.display = 'block';
+      projectedContent.style.display = 'none';
+    } else {
+      currentContent.style.display = 'none';
+      projectedContent.style.display = 'block';
+    }
   }
 };
 
@@ -927,6 +1288,7 @@ async function render() {
   container.addEventListener('change', handlers.handleDeviceChange);
   container.addEventListener('click', handlers.handleItemClick);
   container.addEventListener('click', handlers.handleGoalButtonClick);
+  container.addEventListener('click', handlers.handleProgressTabClick);
 }
 
 async function init() {
@@ -975,12 +1337,37 @@ async function enhanceProjectCards() {
   const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
 
   for (const card of projectCards) {
-    if (card.querySelector('.siege-efficiency-box')) continue; 
+    if (card.querySelector('.siege-efficiency-box')) continue;
 
     try {
       const projectData = await projectStats.extractProjectData(card);
+      const cardId = card.id.replace('project_', '');
+
 
       if (projectData) {
+        const currentWeek = utils.getCurrentWeek();
+        const statusElement = card.querySelector('.project-status-indicator');
+        const statusText = statusElement ? statusElement.textContent : 'NO STATUS ELEMENT';
+        const hasCoins = statusText.includes('🪙') ||
+                         /Value:\s*\d+(\.\d+)?/.test(statusText) ||
+                         /\d+\.\d+\s*🪙/.test(statusText) ||
+                         statusText.includes('coin') ||
+                         /\d+\s*coins?/i.test(statusText);
+
+        const isUnshipped = !hasCoins;
+
+        if (isUnshipped) {
+          if (projectData.week === currentWeek) {
+            const sideloadedHours = await projectStats.sideloadProjectTime(projectData.projectId);
+
+            if (sideloadedHours && sideloadedHours > 0) {
+              projectData.hours = sideloadedHours;
+            }
+          } else {
+            projectStats.trackProjectTime(projectData.projectId, projectData.hours);
+          }
+        }
+
         const reviewerFeedback = card.querySelector('.reviewer-feedback-indicator');
         const projectFooter = card.querySelector('.project-footer');
         const targetElement = reviewerFeedback || projectFooter;
@@ -1064,6 +1451,11 @@ async function enhanceProjectPage() {
 
     const estimates = projectStats.estimateReviewerAndVoterStats(totalCoins, week, hours);
     const coinsPerHour = projectStats.calculateEfficiency(totalCoins, hours);
+    const isUnshipped = totalCoins === 0;
+
+    if (isUnshipped) {
+      projectStats.trackProjectTime(projectId, hours);
+    }
 
     const projectData = {
       projectId,
@@ -1088,6 +1480,12 @@ async function enhanceProjectPage() {
 
     const detailedStats = projectStats.createDetailedStats(projectData);
 
+    let projectionsHTML = '';
+    if (isCurrentWeek && isUnshipped) {
+      const unshippedHours = projectStats.getUnshippedTime(projectId);
+      projectionsHTML = projectStats.createProjectProjections(projectId, unshippedHours);
+    }
+
     const reviewerFeedback = document.querySelector('.reviewer-feedback-indicator') ||
                             document.querySelector('[class*="reviewer"]') ||
                             document.querySelector('[class*="feedback"]');
@@ -1095,7 +1493,7 @@ async function enhanceProjectPage() {
     let insertionPoint;
     if (reviewerFeedback) {
       insertionPoint = reviewerFeedback;
-      insertionPoint.insertAdjacentHTML('beforebegin', detailedStats);
+      insertionPoint.insertAdjacentHTML('beforebegin', detailedStats + projectionsHTML);
     } else {
       insertionPoint = document.querySelector('.project-details') ||
                       document.querySelector('.project-content') ||
@@ -1106,9 +1504,9 @@ async function enhanceProjectPage() {
 
 
       if (insertionPoint) {
-        insertionPoint.insertAdjacentHTML('beforeend', detailedStats);
+        insertionPoint.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
       } else {
-        document.body.insertAdjacentHTML('beforeend', detailedStats);
+        document.body.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
       }
     }
 
