@@ -1540,6 +1540,188 @@ if (typeof window !== 'undefined') {
   let lastPath = window.location.pathname;
   let navigationTimeout = null;
 
+  async function initKeepEnhancements() {
+    if (window.location.pathname !== '/keep') {
+      return;
+    }
+
+    try {
+      await enhanceKeepPage();
+    } catch (error) {
+      console.error('Error enhancing keep page:', error);
+    }
+  }
+
+  async function enhanceKeepPage() {
+    const homeContainer = document.querySelector('.home-container');
+    if (!homeContainer) {
+      setTimeout(() => enhanceKeepPage(), 500);
+      return;
+    }
+
+    if (homeContainer.dataset.siegeEnhanced === 'true') {
+      return;
+    }
+
+
+    const coffersTitle = document.querySelector('.home-section-title');
+    let currentCoins = 0;
+    if (coffersTitle && coffersTitle.textContent.includes('Your coffers:')) {
+      const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
+      if (coinMatch) {
+        currentCoins = parseInt(coinMatch[1]);
+      }
+    }
+
+    const projectionData = goals.getProjectionData();
+    enhanceCoffersDisplay(projectionData);
+    addTotalPillagingStats(currentCoins);
+    homeContainer.dataset.siegeEnhanced = 'true';
+
+  }
+
+  function enhanceCoffersDisplay(projectionData) {
+    const coffersTitle = document.querySelector('.home-section-title');
+    if (!coffersTitle || !coffersTitle.textContent.includes('Your coffers:')) {
+      return;
+    }
+
+    if (coffersTitle.querySelector('[data-siege-projected]')) {
+      return;
+    }
+
+    const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
+    if (!coinMatch) return;
+
+    const projectedCoins = projectionData.projectedFromUnshipped || 0;
+
+    if (projectedCoins > 0) {
+      const coinIcon = coffersTitle.querySelector('.coin-icon');
+      if (coinIcon) {
+        coinIcon.insertAdjacentHTML('afterend', `
+          <span data-siege-projected="true" style="font-size: 0.55em;"> (+${projectedCoins}🪙 projected)</span>
+        `);
+      }
+    }
+  }
+
+  function addTotalPillagingStats(currentCoins = 0) {
+    const twoColDiv = document.querySelector('.home-two-col');
+    if (!twoColDiv) return;
+
+    if (document.querySelector('[data-siege-stats]')) {
+      return;
+    }
+
+    const shippedStats = projectStats.getStoredStats();
+    const timeTracking = projectStats.getStoredTimeTracking();
+
+    let totalShippedHours = 0;
+    let totalShippedCoins = 0;
+    let shippedProjects = 0;
+    let weekStats = {};
+
+    Object.values(shippedStats).forEach(project => {
+      totalShippedHours += project.hours;
+      totalShippedCoins += project.total_coins;
+      shippedProjects++;
+
+      if (!weekStats[project.week]) {
+        weekStats[project.week] = { hours: 0, projects: new Set() };
+      }
+      weekStats[project.week].hours += project.hours;
+      weekStats[project.week].projects.add(`shipped_${project.week}`);
+    });
+
+    let totalUnshippedHours = 0;
+    let unshippedProjects = 0;
+
+    Object.keys(timeTracking).forEach(projectId => {
+      const tracking = timeTracking[projectId];
+      if (tracking.snapshots && tracking.snapshots.length > 0) {
+        const latestSnapshot = tracking.snapshots[tracking.snapshots.length - 1];
+        const currentWeek = utils.getCurrentWeek();
+
+        if (latestSnapshot.week === currentWeek) {
+          totalUnshippedHours += latestSnapshot.hours;
+          unshippedProjects++;
+
+          if (!weekStats[latestSnapshot.week]) {
+            weekStats[latestSnapshot.week] = { hours: 0, projects: new Set() };
+          }
+          weekStats[latestSnapshot.week].hours += latestSnapshot.hours;
+        }
+      }
+    });
+
+    const totalHours = totalShippedHours + totalUnshippedHours;
+    const totalProjects = shippedProjects + unshippedProjects;
+
+    const avgCoinsPerHour = totalShippedHours > 0 ? (totalShippedCoins / totalShippedHours) :
+                           (currentCoins > 0 && totalHours > 0 ? currentCoins / totalHours : 12);
+
+    let avgReviewerBonus = 1.5; 
+    let avgVoterStars = 3.0;
+
+    if (shippedProjects > 0) {
+      const totalReviewerBonus = Object.values(shippedStats).reduce((sum, p) => sum + p.reviewer_bonus, 0);
+      const totalVoterStars = Object.values(shippedStats).reduce((sum, p) => sum + p.avg_score, 0);
+
+      avgReviewerBonus = totalReviewerBonus / shippedProjects;
+      avgVoterStars = totalVoterStars / shippedProjects;
+    }
+
+    const weeksParticipated = totalProjects;
+    const totalDays = Math.max(weeksParticipated * 7, 7);
+    const avgDailyHours = totalHours / totalDays;
+
+    const statsSection = `
+      <div class="home-card-transparent" data-siege-stats="true" style="margin-top: 2rem;">
+        <div class="home-card-body-reset">
+          <header class="home-header">
+            <h2 class="home-section-title">Statistics</h2>
+          </header>
+          <div class="home-two-col" style="margin-top: 1rem;">
+            <div class="home-col">
+              <div class="home-list home-list-center">
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem;">
+                  <span>Total pillaging since Week 1:</span>
+                  <strong>${utils.formatHours(totalHours)}</strong>
+                </div>
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                  <span>Weeks participated:</span>
+                  <strong>${weeksParticipated}</strong>
+                </div>
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                  <span>Average daily coding:</span>
+                  <strong>${utils.formatHours(avgDailyHours)}</strong>
+                </div>
+              </div>
+            </div>
+            <div class="home-col">
+              <div class="home-list home-list-center">
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem;">
+                  <span>Avg reviewer bonus:</span>
+                  <strong>×${avgReviewerBonus.toFixed(2)}</strong>
+                </div>
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                  <span>Avg voter stars:</span>
+                  <strong>${avgVoterStars.toFixed(1)}/5</strong>
+                </div>
+                <div class="home-row" style="justify-content: space-between; padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                  <span>Coins per hour:</span>
+                  <strong>${avgCoinsPerHour.toFixed(1)} 🪙/h</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    twoColDiv.insertAdjacentHTML('afterend', statsSection);
+  }
+
   function handleNavigation() {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
@@ -1554,6 +1736,7 @@ if (typeof window !== 'undefined') {
         }
 
         initProjectStats();
+        initKeepEnhancements();
         navigationTimeout = null;
       }, 300);
     }
@@ -1583,19 +1766,20 @@ if (typeof window !== 'undefined') {
     originalReplaceState.apply(history, arguments);
     setTimeout(handleNavigation, 50);
   };
-}
 
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.location.pathname.startsWith('/market')) {
+        init();
+      }
+      initProjectStats();
+      initKeepEnhancements();
+    });
+  } else {
     if (window.location.pathname.startsWith('/market')) {
       init();
     }
     initProjectStats();
-  });
-} else {
-  if (window.location.pathname.startsWith('/market')) {
-    init();
+    initKeepEnhancements();
   }
-  initProjectStats();
 }
