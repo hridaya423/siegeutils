@@ -380,26 +380,34 @@ const projectStats = {
     localStorage.setItem('siege-utils-unshipped', JSON.stringify(data));
   },
 
-  trackProjectTime(projectId, currentHours) {
+  trackProjectTime(projectId, currentHours, projectWeek = null) {
 
     const timeTracking = this.getStoredTimeTracking();
-    const currentWeek = utils.getCurrentWeek();
-
+    const weekToUse = projectWeek || utils.getCurrentWeek();
 
     if (!timeTracking[projectId]) {
       timeTracking[projectId] = {
         firstSeen: new Date().toISOString(),
-        week: currentWeek,
+        week: weekToUse,
         initialHours: currentHours,
         snapshots: []
       };
     }
 
-    timeTracking[projectId].snapshots.push({
-      timestamp: new Date().toISOString(),
-      hours: currentHours,
-      week: currentWeek
-    });
+    const existingWeekSnapshot = timeTracking[projectId].snapshots.find(
+      snapshot => snapshot.week === weekToUse
+    );
+
+    if (existingWeekSnapshot) {
+      existingWeekSnapshot.hours = currentHours;
+      existingWeekSnapshot.timestamp = new Date().toISOString();
+    } else {
+      timeTracking[projectId].snapshots.push({
+        timestamp: new Date().toISOString(),
+        hours: currentHours,
+        week: weekToUse
+      });
+    }
 
     if (timeTracking[projectId].snapshots.length > 50) {
       timeTracking[projectId].snapshots = timeTracking[projectId].snapshots.slice(-50);
@@ -425,15 +433,18 @@ const projectStats = {
       const doc = parser.parseFromString(html, 'text/html');
 
       const timeElement = doc.querySelector('.project-week-time');
+      const titleElement = doc.querySelector('.projects-title');
 
-      if (timeElement) {
+      if (timeElement && titleElement) {
         const fullText = timeElement.textContent;
         const timeStr = fullText.replace('Time spent: ', '');
-
         const hours = this.parseTimeString(timeStr);
 
+        const titleStr = titleElement.textContent;
+        const week = this.parseWeek(titleStr);
+
         if (hours > 0) {
-          this.trackProjectTime(projectId, hours);
+          this.trackProjectTime(projectId, hours, week);
 
           return hours;
         }
@@ -663,23 +674,110 @@ const goals = {
     };
   },
 
+  getWeek5PlusEfficiency() {
+    const shippedStats = projectStats.getStoredStats();
+    const week5PlusProjects = Object.values(shippedStats).filter(project => project.week >= 5);
+
+    if (week5PlusProjects.length > 0) {
+      const totalWeek5PlusCoins = week5PlusProjects.reduce((sum, p) => sum + p.total_coins, 0);
+      const totalWeek5PlusHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0);
+      const actualWeek5PlusEfficiency = totalWeek5PlusHours > 0 ? totalWeek5PlusCoins / totalWeek5PlusHours : 0;
+
+      return actualWeek5PlusEfficiency;
+    }
+
+    const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
+
+    const avgPrepHours = prepWeekProjects.reduce((sum, p) => sum + p.hours, 0) / prepWeekProjects.length;
+    const predictedWeeklyHours = Math.max(avgPrepHours, 10);
+
+    let baseCoinsPerHour;
+    if (predictedWeeklyHours <= 10) {
+      baseCoinsPerHour = 0.5;
+    } else {
+      const additionalHours = predictedWeeklyHours - 10;
+      const totalCoinsFromBase = (10 * 0.5) + (additionalHours * 1.0);
+      baseCoinsPerHour = totalCoinsFromBase / predictedWeeklyHours;
+    }
+
+    const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+    const prepWeekBaseRate = 2.0;
+    const multiplierFromBonuses = prepWeekEfficiency / prepWeekBaseRate;
+
+    const predictedEfficiency = baseCoinsPerHour * multiplierFromBonuses;
+    return predictedEfficiency;
+  },
+
   getProjectionData() {
     const progress = this.getProgress();
     const avgEfficiency = projectStats.getAverageEfficiency();
+    const currentWeek = utils.getCurrentWeek();
     const remainingCoins = progress.total - progress.current;
-    const totalHoursNeeded = remainingCoins / avgEfficiency;
+
+    const week5PlusEfficiency = this.getWeek5PlusEfficiency();
+
+    let totalHoursNeeded;
+
+    if (currentWeek >= 5) {
+      totalHoursNeeded = remainingCoins / week5PlusEfficiency;
+    } else {
+
+      const prepWeeksRemaining = Math.max(0, 5 - currentWeek);
+
+      const timeTracking = projectStats.getStoredTimeTracking();
+      const shippedStats = projectStats.getStoredStats();
+      let avgHoursPerWeek = 8;
+
+      const allWeeklyHours = {};
+      Object.values(shippedStats).forEach(project => {
+        if (!allWeeklyHours[project.week]) allWeeklyHours[project.week] = 0;
+        allWeeklyHours[project.week] += project.hours;
+      });
+
+      Object.keys(timeTracking).forEach(projectId => {
+        const tracking = timeTracking[projectId];
+        if (tracking.snapshots && tracking.snapshots.length > 0) {
+          const hasShippedData = Object.values(shippedStats).some(project =>
+            project.projectId === projectId || `project_${projectId}` in shippedStats
+          );
+          if (!hasShippedData) {
+            tracking.snapshots.forEach(snapshot => {
+              if (!allWeeklyHours[snapshot.week]) allWeeklyHours[snapshot.week] = 0;
+              allWeeklyHours[snapshot.week] += snapshot.hours;
+            });
+          }
+        }
+      });
+
+      const weeklyHoursValues = Object.values(allWeeklyHours).filter(h => h > 0);
+      if (weeklyHoursValues.length > 0) {
+        avgHoursPerWeek = weeklyHoursValues.reduce((sum, h) => sum + h, 0) / weeklyHoursValues.length;
+      }
+      const hoursInRemainingPrepWeeks = prepWeeksRemaining * avgHoursPerWeek;
+      const coinsFromRemainingPrepWeeks = hoursInRemainingPrepWeeks * avgEfficiency;
+
+      const coinsNeededInWeek5Plus = Math.max(0, remainingCoins - coinsFromRemainingPrepWeeks);
+      const hoursNeededInWeek5Plus = coinsNeededInWeek5Plus / week5PlusEfficiency;
+
+      totalHoursNeeded = hoursInRemainingPrepWeeks + hoursNeededInWeek5Plus;
+    }
+
+    const effectiveEfficiency = remainingCoins / totalHoursNeeded;
 
     const timeTracking = projectStats.getStoredTimeTracking();
-    const currentWeek = utils.getCurrentWeek();
     let totalUnshippedTime = 0;
     let totalUnshippedCoins = 0;
 
     Object.keys(timeTracking).forEach(projectId => {
       const tracking = timeTracking[projectId];
       if (tracking.snapshots && tracking.snapshots.length > 0) {
-        const latest = tracking.snapshots[tracking.snapshots.length - 1];
+        const shippedStats = projectStats.getStoredStats();
+        const hasShippedData = Object.values(shippedStats).some(project =>
+          project.projectId === projectId || `project_${projectId}` in shippedStats
+        );
 
-        if (latest.week === currentWeek) {
+        if (!hasShippedData) {
+          const latest = tracking.snapshots[tracking.snapshots.length - 1];
           const hours = latest.hours;
           const projectedCoins = Math.round(hours * avgEfficiency);
 
@@ -689,10 +787,9 @@ const goals = {
       }
     });
 
-
     const projectedFromUnshipped = totalUnshippedCoins;
     const remainingAfterUnshipped = Math.max(0, remainingCoins - projectedFromUnshipped);
-    const additionalHoursNeeded = remainingAfterUnshipped / avgEfficiency;
+    const additionalHoursNeeded = remainingAfterUnshipped / effectiveEfficiency;
     const projectedTotal = progress.current + projectedFromUnshipped;
     const projectedPercentage = Math.min((projectedTotal / progress.total) * 100, 100);
 
@@ -831,8 +928,6 @@ const goals = {
       </div>
     `;
   },
-
-
 
   createGoalButton(item) {
     const goals = this.getStoredGoals();
@@ -1364,7 +1459,7 @@ async function enhanceProjectCards() {
               projectData.hours = sideloadedHours;
             }
           } else {
-            projectStats.trackProjectTime(projectData.projectId, projectData.hours);
+            projectStats.trackProjectTime(projectData.projectId, projectData.hours, projectData.week);
           }
         }
 
@@ -1454,7 +1549,7 @@ async function enhanceProjectPage() {
     const isUnshipped = totalCoins === 0;
 
     if (isUnshipped) {
-      projectStats.trackProjectTime(projectId, hours);
+      projectStats.trackProjectTime(projectId, hours, week);
     }
 
     const projectData = {
@@ -1576,6 +1671,7 @@ if (typeof window !== 'undefined') {
     const projectionData = goals.getProjectionData();
     enhanceCoffersDisplay(projectionData);
     addTotalPillagingStats(currentCoins);
+    addWeeklyBreakdownChart();
     homeContainer.dataset.siegeEnhanced = 'true';
 
   }
@@ -1593,7 +1689,10 @@ if (typeof window !== 'undefined') {
     const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
     if (!coinMatch) return;
 
+    const currentCoins = parseInt(coinMatch[1]);
     const projectedCoins = projectionData.projectedFromUnshipped || 0;
+
+    animateCoinsCountUp(coffersTitle, currentCoins);
 
     if (projectedCoins > 0) {
       const coinIcon = coffersTitle.querySelector('.coin-icon');
@@ -1603,6 +1702,41 @@ if (typeof window !== 'undefined') {
         `);
       }
     }
+  }
+
+  function animateCoinsCountUp(titleElement, targetValue, duration = 2000) {
+    const coinMatch = titleElement.textContent.match(/(.*: )(\d+)(.*)/);
+    if (!coinMatch) return;
+
+    const [, prefix, currentNum, suffix] = coinMatch;
+    const startValue = 0;
+    const startTime = Date.now();
+
+    function easeOutQuint(t) {
+      return 1 - Math.pow(1 - t, 5);
+    }
+
+    function updateValue() {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+
+      const easedProgress = easeOutQuint(progress);
+      const currentValue = Math.round(startValue + (targetValue - startValue) * easedProgress);
+
+      titleElement.childNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.includes(':')) {
+          node.textContent = `${prefix}${currentValue}${suffix.replace(/🪙.*/, '')}`;
+        }
+      });
+
+      if (progress < 1) {
+        requestAnimationFrame(updateValue);
+      }
+    }
+
+    setTimeout(() => {
+      requestAnimationFrame(updateValue);
+    }, 100);
   }
 
   function addTotalPillagingStats(currentCoins = 0) {
@@ -1639,10 +1773,23 @@ if (typeof window !== 'undefined') {
     Object.keys(timeTracking).forEach(projectId => {
       const tracking = timeTracking[projectId];
       if (tracking.snapshots && tracking.snapshots.length > 0) {
-        const latestSnapshot = tracking.snapshots[tracking.snapshots.length - 1];
-        const currentWeek = utils.getCurrentWeek();
+        const hasShippedData = Object.values(shippedStats).some(project =>
+          project.projectId === projectId || `project_${projectId}` in shippedStats
+        );
 
-        if (latestSnapshot.week === currentWeek) {
+        if (!hasShippedData) {
+          const weeklySnapshots = {};
+          tracking.snapshots.forEach(snapshot => {
+            if (!weeklySnapshots[snapshot.week]) {
+              weeklySnapshots[snapshot.week] = [];
+            }
+            weeklySnapshots[snapshot.week].push(snapshot);
+          });
+
+          const latestWeek = Math.max(...Object.keys(weeklySnapshots).map(w => parseInt(w)));
+          const latestWeekSnapshots = weeklySnapshots[latestWeek];
+          const latestSnapshot = latestWeekSnapshots[latestWeekSnapshots.length - 1];
+
           totalUnshippedHours += latestSnapshot.hours;
           unshippedProjects++;
 
@@ -1722,6 +1869,328 @@ if (typeof window !== 'undefined') {
     twoColDiv.insertAdjacentHTML('afterend', statsSection);
   }
 
+  function addWeeklyBreakdownChart() {
+    if (document.querySelector('[data-siege-weekly-chart]')) {
+      return;
+    }
+
+    const shippedStats = projectStats.getStoredStats();
+    const timeTracking = projectStats.getStoredTimeTracking();
+    const weeklyData = {};
+
+    Object.values(shippedStats).forEach(project => {
+      if (!weeklyData[project.week]) {
+        weeklyData[project.week] = { hours: 0, projects: 0 };
+      }
+      weeklyData[project.week].hours += project.hours;
+      weeklyData[project.week].projects++;
+    });
+
+    Object.keys(timeTracking).forEach(projectId => {
+      const tracking = timeTracking[projectId];
+      if (tracking.snapshots && tracking.snapshots.length > 0) {
+        const weeklySnapshots = {};
+        tracking.snapshots.forEach(snapshot => {
+          if (!weeklySnapshots[snapshot.week]) {
+            weeklySnapshots[snapshot.week] = [];
+          }
+          weeklySnapshots[snapshot.week].push(snapshot);
+        });
+
+        Object.keys(weeklySnapshots).forEach(week => {
+          const weekSnapshots = weeklySnapshots[week];
+          const latestSnapshot = weekSnapshots[weekSnapshots.length - 1];
+          const hasShippedData = Object.values(shippedStats).some(project =>
+            project.week === parseInt(week)
+          );
+
+          if (!hasShippedData) {
+            if (!weeklyData[week]) {
+              weeklyData[week] = { hours: 0, projects: 0 };
+            }
+            weeklyData[week].hours += latestSnapshot.hours;
+            weeklyData[week].projects++;
+          }
+        });
+      }
+    });
+
+    const allWeeks = Object.keys(weeklyData).map(w => parseInt(w)).sort((a, b) => a - b);
+    if (allWeeks.length === 0) return;
+
+    const minWeek = Math.min(...allWeeks);
+    const maxWeek = Math.max(...allWeeks);
+
+    const completeWeeklyData = {};
+    for (let week = minWeek; week <= maxWeek; week++) {
+      completeWeeklyData[week] = weeklyData[week] || { hours: 0, projects: 0 };
+    }
+
+    const chartData = Object.keys(completeWeeklyData)
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .map(week => {
+        const weekNum = parseInt(week);
+        const weekData = completeWeeklyData[week];
+
+        let coinsPerHour = 0;
+        let isCoinsProjected = false;
+        const weekShippedProjects = Object.values(shippedStats).filter(project => project.week === weekNum);
+        const hasShippedData = weekShippedProjects.length > 0;
+        const currentWeek = utils.getCurrentWeek();
+        const isHoursProjected = weekNum > currentWeek;
+
+        if (hasShippedData) {
+          const totalWeekCoins = weekShippedProjects.reduce((sum, p) => sum + p.total_coins, 0);
+          const totalWeekHours = weekShippedProjects.reduce((sum, p) => sum + p.hours, 0);
+          coinsPerHour = totalWeekHours > 0 ? totalWeekCoins / totalWeekHours : 0;
+          isCoinsProjected = false;
+        } else {
+          coinsPerHour = weekNum >= 5 ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
+          isCoinsProjected = true;
+        }
+
+        return {
+          week: weekNum,
+          hours: weekData.hours,
+          coinsPerHour,
+          label: `Week ${week}`,
+          isProjected: isCoinsProjected,
+          isCoinsProjected,
+          isHoursProjected
+        };
+      });
+
+    const currentWeek = utils.getCurrentWeek();
+    const avgEfficiency = projectStats.getAverageEfficiency();
+
+    const futureWeek = currentWeek + 1;
+    const futureWeekEfficiency = futureWeek >= 5 ? goals.getWeek5PlusEfficiency() : avgEfficiency;
+
+    chartData.push({
+      week: futureWeek,
+      hours: chartData.length > 0 ? chartData[chartData.length - 1].hours * 0.9 : 8,
+      coinsPerHour: futureWeekEfficiency,
+      label: `Week ${futureWeek}`,
+      isProjected: true,
+      isCoinsProjected: true,
+      isHoursProjected: true
+    });
+
+    const totalHours = chartData.reduce((sum, d) => sum + d.hours, 0);
+
+    const upcomingWeek = currentWeek + 1;
+    const weeksWithoutUpcoming = chartData.filter(d => !(d.week === upcomingWeek && d.isCoinsProjected && d.isHoursProjected));
+    const displayMaxWeek = weeksWithoutUpcoming.length > 0 ? Math.max(...weeksWithoutUpcoming.map(d => d.week)) : chartData[chartData.length - 1]?.week || currentWeek;
+    const currentYear = new Date().getFullYear();
+
+    const legendMarkup = `
+                <div class="siege-weekly-legend" style="display: inline-flex; gap: 0.85rem; align-items: center; flex-wrap: wrap; font-size: 0.75rem; color: #1f2937;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <span style="width: 10px; height: 10px; border-radius: 3px; background: #34d399;"></span>
+                    <span>Hours tracked</span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <span style="width: 10px; height: 10px; border-radius: 3px; background: #60a5fa;"></span>
+                    <span>🪙/h earned</span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <span style="width: 10px; height: 10px; border-radius: 3px; border: 1px dashed rgba(148, 163, 184, 0.8); background: rgba(148, 163, 184, 0.12);"></span>
+                    <span>Projected</span>
+                  </span>
+                </div>
+              `;
+
+    const createRechartsChart = () => {
+      const chartId = 'siege-weekly-chart-' + Date.now();
+
+      return `
+        <section data-siege-weekly-chart="true" class="home-card-transparent siege-weekly-card" style="margin-top: 2.5rem; background: rgba(255, 255, 255, 0.14); border: none; border-radius: 1rem; box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.18); backdrop-filter: blur(12px);">
+          <div class="home-card-body-reset" style="padding: 1.75rem;">
+            <div class="home-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem;">
+              <div>
+                <h3 class="home-section-title" style="margin: 0; font-size: 2rem; color: #0f172a;">Weekly Efficiency</h3>
+                <p style="margin: 0.35rem 0 0; font-size: 0.82rem; color: #6b7280;">Week ${minWeek} – Week ${displayMaxWeek} ${currentYear}</p>
+              </div>
+${legendMarkup}
+            </div>
+            <div style="margin-top: 1.5rem;">
+              <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(226, 232, 240, 0.6); border-radius: 0.9rem; padding: 1.25rem;">
+                <div id="${chartId}" style="height: 220px; width: 100%;"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      `;
+    };
+
+    const statsSection = document.querySelector('[data-siege-stats]');
+    if (!statsSection) return;
+
+    const chartHTML = createRechartsChart();
+    const chartId = chartHTML.match(/id="([^"]+)"/)[1];
+
+    statsSection.insertAdjacentHTML('afterend', chartHTML);
+
+    setTimeout(() => {
+      initializeChart(chartId, chartData);
+    }, 100);
+  }
+
+  function initializeChart(chartId, chartData) {
+    const container = document.getElementById(chartId);
+    if (!container) {
+      console.error('Chart container not found');
+      return;
+    }
+
+    if (!window.Chart) {
+      console.error('Chart.js not loaded');
+      return;
+    }
+    createChart(container, chartData, chartId);
+  }
+
+  function createChart(container, chartData, chartId) {
+    const canvas = document.createElement('canvas');
+    canvas.id = chartId + '-canvas';
+    canvas.style.maxHeight = '200px';
+
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+
+    const labels = chartData.map(d => `W${d.week}`);
+    const hoursData = chartData.map(d => d.hours);
+    const coinsData = chartData.map(d => d.coinsPerHour);
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            data: hoursData,
+            borderColor: '#34d399',
+            backgroundColor: 'rgba(52, 211, 153, 0.12)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.25,
+            pointBackgroundColor: (ctx) => chartData[ctx.dataIndex]?.isHoursProjected ? '#ffffff' : '#34d399',
+            pointBorderColor: '#34d399',
+            pointBorderWidth: 2,
+            pointRadius: (ctx) => chartData[ctx.dataIndex]?.isHoursProjected ? 4 : 5,
+            pointHoverRadius: 7,
+            yAxisID: 'y',
+            segment: {
+              borderDash: (ctx) => {
+                const startHoursProjected = chartData[ctx.p0DataIndex]?.isHoursProjected;
+                const endHoursProjected = chartData[ctx.p1DataIndex]?.isHoursProjected;
+                return startHoursProjected || endHoursProjected ? [6, 6] : undefined;
+              }
+            }
+          },
+          {
+            data: coinsData,
+            borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96, 165, 250, 0.12)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.25,
+            pointBackgroundColor: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? '#ffffff' : '#60a5fa',
+            pointBorderColor: '#60a5fa',
+            pointBorderWidth: 2,
+            pointRadius: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? 4 : 5,
+            pointHoverRadius: 7,
+            yAxisID: 'y',
+            segment: {
+              borderDash: (ctx) => {
+                const startProjected = chartData[ctx.p0DataIndex]?.isCoinsProjected || chartData[ctx.p0DataIndex]?.isProjected || false;
+                const endProjected = chartData[ctx.p1DataIndex]?.isCoinsProjected || chartData[ctx.p1DataIndex]?.isProjected || false;
+                return startProjected && endProjected ? [6, 6] : undefined;
+              }
+            }
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        scales: {
+          x: {
+            display: true,
+            grid: {
+              color: 'rgba(203, 213, 225, 0.5)'
+            },
+            ticks: {
+              color: '#334155',
+              font: {
+                size: 11,
+                weight: '500'
+              }
+            },
+            border: {
+              display: false
+            }
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            title: {
+              display: false
+            },
+            grid: {
+              color: 'rgba(226, 232, 240, 0.6)'
+            },
+            ticks: {
+              color: '#334155',
+              font: {
+                size: 11
+              }
+            },
+            beginAtZero: false,
+            border: {
+              display: false
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: '#ffffff',
+            titleColor: '#0f172a',
+            bodyColor: '#334155',
+            borderColor: 'rgba(148, 163, 184, 0.6)',
+            borderWidth: 1,
+            cornerRadius: 9,
+            padding: 12,
+            displayColors: false,
+            callbacks: {
+              label(context) {
+                const dataIndex = context.dataIndex;
+                const meta = chartData[dataIndex] || {};
+                const isHoursSeries = context.datasetIndex === 0;
+                const suffix = (!isHoursSeries && meta.isCoinsProjected) ? ' (projected)' : '';
+                const label = isHoursSeries ? 'Hours' : '🪙/h';
+                const value = isHoursSeries
+                  ? `${context.parsed.y.toFixed(1)}h`
+                  : `${context.parsed.y.toFixed(2)} 🪙/h`;
+                return `${label}: ${value}${suffix}`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
   function handleNavigation() {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
@@ -1783,3 +2252,6 @@ if (typeof window !== 'undefined') {
     initKeepEnhancements();
   }
 }
+
+
+
