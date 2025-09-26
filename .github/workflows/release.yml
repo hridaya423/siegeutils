@@ -62,6 +62,7 @@ jobs:
         [ -f styles.css ] && cp styles.css temp-chrome-extension/
         [ -f icon64.png ] && cp icon64.png temp-chrome-extension/
         [ -f icon128.png ] && cp icon128.png temp-chrome-extension/
+        [ -f chart.umd.js ] && cp chart.umd.js temp-chrome-extension/
 
         # Create Chrome ZIP
         cd temp-chrome-extension
@@ -86,6 +87,7 @@ jobs:
         [ -f styles.css ] && cp styles.css temp-firefox-extension/
         [ -f icon64.png ] && cp icon64.png temp-firefox-extension/
         [ -f icon128.png ] && cp icon128.png temp-firefox-extension/
+        [ -f chart.umd.js ] && cp chart.umd.js temp-firefox-extension/
 
         # Create Firefox ZIP
         cd temp-firefox-extension
