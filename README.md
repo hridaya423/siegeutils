@@ -3,7 +3,7 @@
 A Browser extension (supports Chrome, Firefox, Safari) that improves the siege website experience.
 
 Chrome webstore: https://chromewebstore.google.com/detail/siege-utils/bampecbkbcfmknndingbkapjjenljpoi
-Mozilla addons (might not be reviewed yet therefore 404): https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
+Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 
 ## Features
 
