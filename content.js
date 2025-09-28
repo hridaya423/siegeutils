@@ -1672,6 +1672,7 @@ if (typeof window !== 'undefined') {
     enhanceCoffersDisplay(projectionData);
     addTotalPillagingStats(currentCoins);
     addWeeklyBreakdownChart();
+    initCountdownTimer();
     homeContainer.dataset.siegeEnhanced = 'true';
 
   }
@@ -2189,6 +2190,63 @@ ${legendMarkup}
         }
       }
     });
+  }
+
+  function initCountdownTimer() {
+    const footer = document.querySelector('.home-progress-footer');
+    if (!footer) return;
+
+    let countdownContainer = document.getElementById('time-till-next-week-container');
+    if (!countdownContainer) {
+      countdownContainer = document.createElement('div');
+      countdownContainer.className = 'home-progress-bottom';
+      countdownContainer.id = 'time-till-next-week-container';
+      footer.appendChild(countdownContainer);
+    }
+
+    countdownContainer.style.marginTop = '0.75rem';
+    countdownContainer.style.fontSize = '1.3rem';
+    countdownContainer.style.fontWeight = '500';
+    countdownContainer.style.color = '#374151';
+    countdownContainer.style.padding = '0.5rem';
+    countdownContainer.style.background = 'rgba(255, 255, 255, 0.2)';
+    countdownContainer.style.borderRadius = '8px';
+    countdownContainer.style.border = '1px solid rgba(0, 0, 0, 0.05)';
+    countdownContainer.innerHTML = `
+        Next week in: <span id="time-till-next-week" style="font-weight: 700; color: #1f2937;"></span>
+    `;
+
+    updateCountdown();
+    setInterval(updateCountdown, 60000);
+  }
+
+  function updateCountdown() {
+      const countdownElement = document.getElementById('time-till-next-week');
+      if (!countdownElement) return;
+
+      const now = new Date();
+      
+      let nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0));
+      
+      while (nextMonday.getUTCDay() !== 1) {
+          nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
+      }
+
+      if (nextMonday.getTime() < now.getTime()) {
+          nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
+      }
+
+      const diff = nextMonday.getTime() - now.getTime();
+
+      if (diff > 0) {
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+          countdownElement.textContent = `${days}d ${hours}h ${minutes}m`;
+      } else {
+          countdownElement.textContent = "The new week has begun!";
+      }
   }
 
   function handleNavigation() {
