@@ -1,6 +1,9 @@
 # Siege Utils
 
+## NOTE: I AM AWARE THAT FOR THE CURRENT STORE VERSIONS, NOTHING APPEARS ON THE ARMORY/PROJECTS PAGE, THIS IS FIXED WITH THE CURRENT RELEASE, AND WILL SOON BE AUTO FIXED IF YOU ARE DOWNLOADED VIA THE STORE VERSION (THINK ABOUT 10-12H LATER)
+
 A Browser extension (supports Chrome, Firefox, Safari) that improves the siege website experience.
+
 
 Chrome webstore: https://chromewebstore.google.com/detail/siege-utils/bampecbkbcfmknndingbkapjjenljpoi
 Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
@@ -10,12 +13,18 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 - Currently makes the shop less clunkier & more usable following a tabs & grid format.
 - Estimates your reviewer bonus & your avg voter stars
 - Shows coins/h, estimated reviewer bonus, avg stars on project cards & page.
-  
+- Goals, add what you are aiming for in the market, and see your progress towards it, including estimated more hours needed!
+- Projections for unshipped projects for coins, reviewer bonus, avg stars
+- Statistics on the keep page!,  See a lot of statistics like total time spent, weekly efficiency & hours chart, etc.
 ## Installation
 
 ### Chrome
+**Option 1: Chrome Web Store**
+1. Visit the [Chrome Web Store](https://chromewebstore.google.com/detail/siege-utils/bampecbkbcfmknndingbkapjjenljpoi)
+2. Click "Add to Chrome"
+3. Confirm the installation when prompted
 
-**Option 1: Load Unpacked**
+**Option 2: Load Unpacked**
 1. Download the extension files from releases
 2. Open Chrome and go to `chrome://extensions/`
 3. Enable "Developer mode" in the top right
@@ -23,8 +32,12 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 5. Select the extension folder
 
 ### Firefox
+**Option 1: Mozilla Addons**
+1. Visit the [Mozilla Addons](https://addons.mozilla.org/en-US/firefox/addon/siege-utils/)
+2. Click "Add to Firefox"
+3. Confirm the installation when prompted
 
-**Option 1: Load Temporarily**
+**Option 2: Load Temporarily**
 1. Open Firefox and go to `about:debugging`
 2. Click "This Firefox"
 3. Click "Load Temporary Add-on"
