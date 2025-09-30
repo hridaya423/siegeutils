@@ -1,4 +1,5 @@
-# Siege Utils
+<img width="1280" height="800" alt="image" src="https://github.com/user-attachments/assets/e09ac2cc-17cc-42e0-b01d-bb81248a463f" />
+
 
 ### NOTE: I AM AWARE THAT FOR THE CURRENT STORE VERSIONS, NOTHING APPEARS ON THE ARMORY/PROJECTS PAGE, THIS IS FIXED WITH THE CURRENT RELEASE, AND WILL SOON BE AUTO FIXED IF YOU ARE DOWNLOADED VIA THE STORE VERSION (THINK ABOUT 10-12H LATER)
 
@@ -16,6 +17,16 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 - Goals, add what you are aiming for in the market, and see your progress towards it, including estimated more hours needed!
 - Projections for unshipped projects for coins, reviewer bonus, avg stars
 - Statistics on the keep page!,  See a lot of statistics like total time spent, weekly efficiency & hours chart, etc.
+
+<img width="721" height="727" alt="image" src="https://github.com/user-attachments/assets/6c1dcee8-9a70-4b0a-96e2-22372f53fca3" />
+
+
+I was unable to get a picture for goals & market stuff, because market access was removed, but here is a old picture:  (AS SOON AS MARKET IS RELEASED, I'LL MAKE IT WORK WITH IT)
+<img width="1875" height="1186" alt="image" src="https://github.com/user-attachments/assets/a6022092-e546-4881-8689-8a7a01f58330" />
+<img width="1120" height="553" alt="image" src="https://github.com/user-attachments/assets/b52903df-953f-4089-9c8c-9b0e41c1b8e2" />
+
+
+
 ## Installation
 
 ### Chrome
