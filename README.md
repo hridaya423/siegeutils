@@ -38,10 +38,11 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 3. Confirm the installation when prompted
 
 **Option 2: Load Temporarily**
-1. Open Firefox and go to `about:debugging`
-2. Click "This Firefox"
-3. Click "Load Temporary Add-on"
-4. Select the `manifest_v2.json` file
+1. Download the firefox extension release
+2.  Open Firefox and go to `about:debugging`
+3. Click "This Firefox"
+4. Click "Load Temporary Add-on"
+5. Select the manifest.json file
 
 ### Safari
 
