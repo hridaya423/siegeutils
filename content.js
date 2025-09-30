@@ -6,6 +6,32 @@ let currentCategory = 'laptop';
 let selectedDevice = null;
 let userGoals = [];
 
+function fixLayoutGap() {
+  const style = document.createElement('style');
+  style.id = 'siege-utils-layout-fix';
+  style.textContent = `
+    .app-main {
+      margin-left: 1.5rem !important;
+      margin-right: 2rem !important;
+    }
+
+    body {
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+    }
+
+    .project-card {
+      transform: scale(0.85) !important;
+      transform-origin: top left !important;
+    }
+
+    .projects-grid {
+      gap: 0.25rem !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 const utils = {
   getCSRFToken() {
     const tokenElement = document.querySelector('meta[name="csrf-token"]');
@@ -418,15 +444,17 @@ const projectStats = {
 
   async sideloadProjectTime(projectId) {
     try {
-      const response = await fetch(`https://siege.hackclub.com/projects/${projectId}`, {
+      const response = await fetch(`https://siege.hackclub.com/armory/${projectId}`, {
         headers: {
           'X-CSRF-Token': utils.getCSRFToken()
         }
       });
 
       if (!response.ok) {
+        console.error(`Failed to fetch project ${projectId}: ${response.status} ${response.statusText}`);
         return;
       }
+
 
       const html = await response.text();
       const parser = new DOMParser();
@@ -439,7 +467,6 @@ const projectStats = {
         const fullText = timeElement.textContent;
         const timeStr = fullText.replace('Time spent: ', '');
         const hours = this.parseTimeString(timeStr);
-
         const titleStr = titleElement.textContent;
         const week = this.parseWeek(titleStr);
 
@@ -1429,7 +1456,14 @@ async function init() {
 }
 
 async function enhanceProjectCards() {
+  fixLayoutGap();
+
   const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
+
+  const allProjectLinks = document.querySelectorAll('a[href*="/projects/"]');
+  allProjectLinks.forEach(link => {
+    link.href = link.href.replace('/projects/', '/armory/');
+  });
 
   for (const card of projectCards) {
     if (card.querySelector('.siege-efficiency-box')) continue;
@@ -1479,7 +1513,7 @@ async function enhanceProjectCards() {
 }
 
 async function enhanceProjectPage() {
-  const urlMatch = window.location.pathname.match(/\/projects\/(\d+)/);
+  const urlMatch = window.location.pathname.match(/\/armory\/(\d+)/);
   if (!urlMatch) {
     return;
   }
@@ -1611,9 +1645,9 @@ async function enhanceProjectPage() {
 }
 
 async function initProjectStats() {
-  if (window.location.pathname === '/projects') {
+  if (window.location.pathname === '/armory') {
     await enhanceProjectCards();
-  } else if (window.location.pathname.match(/\/projects\/\d+/)) {
+  } else if (window.location.pathname.match(/\/armory\/\d+/)) {
     let retries = 0;
     const maxRetries = 5;
 
