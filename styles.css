@@ -368,3 +368,30 @@ body, html {
 .siege-goals-progress [style*="position: absolute"][style*="left:"]:hover > div:first-child {
   transform: scale(1.1) !important;
 }
+
+/* Weekly Hours Planner */
+details[data-siege-hours-planner] summary {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+details[data-siege-hours-planner][open] summary #planner-arrow {
+  transform: rotate(180deg);
+}
+
+details[data-siege-hours-planner] > div {
+  animation: smoothSlideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+@keyframes smoothSlideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+}

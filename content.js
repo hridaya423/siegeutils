@@ -6,32 +6,6 @@ let currentCategory = 'laptop';
 let selectedDevice = null;
 let userGoals = [];
 
-function fixLayoutGap() {
-  const style = document.createElement('style');
-  style.id = 'siege-utils-layout-fix';
-  style.textContent = `
-    .app-main {
-      margin-left: 1.5rem !important;
-      margin-right: 2rem !important;
-    }
-
-    body {
-      overflow-x: hidden !important;
-      overflow-y: auto !important;
-    }
-
-    .project-card {
-      transform: scale(0.85) !important;
-      transform-origin: top left !important;
-    }
-
-    .projects-grid {
-      gap: 0.25rem !important;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
 const utils = {
   getCSRFToken() {
     const tokenElement = document.querySelector('meta[name="csrf-token"]');
@@ -70,10 +44,15 @@ const utils = {
   },
 
   getDefaultDevice(category) {
-    if (!techTreeData || !techTreeData[category] || !techTreeData[category].initialNode.options) {
+    if (!techTreeData || !techTreeData[category]) {
       return null;
     }
-    return techTreeData[category].initialNode.options[0].id;
+
+    const initialNode = techTreeData[category].initialNode;
+    if (!initialNode.options) {
+      return initialNode.id;
+    }
+    return initialNode.options[0].id;
   },
 
   escapeHtml(text) {
@@ -103,6 +82,50 @@ const utils = {
     const hours = Math.floor(totalHours);
     const minutes = Math.round((totalHours - hours) * 60);
     return `${hours}h ${minutes}m`;
+  }
+};
+
+const shopUtils = {
+  extractedItems: null,
+
+  async extractShopItemsFromPage() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: 'extractShopItems' },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error('[Siege Utils] Message passing error:', chrome.runtime.lastError);
+              resolve(null);
+              return;
+            }
+
+            if (response?.success && response.data) {
+              resolve(response.data);
+            } else {
+              console.warn('[Siege Utils] Failed to extract shop items:', response?.error);
+              resolve(null);
+            }
+          }
+        );
+      } catch (error) {
+        console.error('[Siege Utils] Error sending message to background:', error);
+        resolve(null);
+      }
+    });
+  },
+
+  async getShopItems() {
+    if (this.extractedItems) {
+      return this.extractedItems;
+    }
+
+    this.extractedItems = await this.extractShopItemsFromPage();
+    return this.extractedItems;
+  },
+
+  clearCache() {
+    this.extractedItems = null;
   }
 };
 
@@ -1063,11 +1086,17 @@ const components = {
   },
 
   createDeviceSelector(category) {
-    if (!techTreeData || !techTreeData[category] || !techTreeData[category].initialNode.options) {
+    if (!techTreeData || !techTreeData[category]) {
       return '';
     }
 
-    const options = techTreeData[category].initialNode.options;
+    const initialNode = techTreeData[category].initialNode;
+
+    if (!initialNode.options) {
+      return '';
+    }
+
+    const options = initialNode.options;
     return `
       <div class="siege-device-selector">
         <select class="siege-device-dropdown" id="deviceSelector">
@@ -1148,19 +1177,39 @@ const components = {
   },
 
   async createOtherItemsLayout() {
-    let items = [
-      { id: 1, title: "Mercenary", price: 35, description: "This meeple will fight for you for an hour. Purchase to skip a required hour of sieging!", image: "/assets/meeple/mercenary-63f27597.png" },
-      { id: 2, title: "Unlock Orange Meeple", price: 50, description: "Not feeling your color? Try orange!", image: "/assets/meeple/meeple-orange-8af8d083.png" },
-      { id: 3, title: "Random Sticker", price: 30, description: "Some random sticker from around hq. This will be sent with your next round of prizes.", image: "/assets/meeple/meeple-red-94f33c30.png" }
-    ];
+    const shopItems = await shopUtils.getShopItems();
+
+    let items = [];
+
+    if (shopItems && shopItems.other) {
+      items = shopItems.other;
+    } else {
+      console.warn('[Siege Utils] Failed to extract shop items, using fallback');
+      items = [
+        { id: 1, title: "Mercenary", price: 35, description: "This meeple will fight for you for an hour. Purchase to skip a required hour of sieging!", image: "/assets/meeple/mercenary-63f27597.png", maxPerWeek: 10, priceIncreases: true, oneTime: false },
+        { id: 2, title: "Unlock Orange Meeple", price: 50, description: "Not feeling your color? Try orange!", image: "/assets/meeple/meeple-orange-8af8d083.png", oneTime: true },
+        { id: 100, title: "Cowboy Hat", price: 50, description: "It's like you're on the farm! (this can be applied to your meeple in the chambers)", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDk1LCJwdXIiOiJibG9iX2lkIn19--d7d4d5f434ac8cade9788ac2822fa8ac9176e7f9/cowboyHat.png", oneTime: true, isCosmetic: true },
+        { id: 101, title: "Sailor Hat", price: 50, description: "This one's seaworthy (this can be applied to your meeple in the chambers)", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDk2LCJwdXIiOiJibG9iX2lkIn19--a6ced8b1d904b059573dd7c1affeba591b1122c5/sailorHat%20(1).png", oneTime: true, isCosmetic: true },
+        { id: 102, title: "Satchel", price: 50, description: "Carry your thingies! (this can be applied to your meeple in the chambers)", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDk3LCJwdXIiOiJibG9iX2lkIn19--b4fd2e6b51bcc8bedf6407fab207805d9a2354b8/satchel%20(1).png", oneTime: true, isCosmetic: true },
+        { id: 200, title: "Controller", price: 200, description: "8Bitdo Ultimate 2C Wireless Controller - A nice controller in lots of pretty colors (you can choose). I have one and it works well :D", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDg5LCJwdXIiOiJibG9iX2lkIn19--7226320acc9b55a520763dfe31a18e7ba81092d6/51asxJG4lqL._SL1500_.png", oneTime: false, isPhysicalItem: true, digital: false },
+        { id: 201, title: "Apple Trackpad", price: 800, description: "Magic trackpad (USB-C). I hear it works as a scale too!", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDkwLCJwdXIiOiJibG9iX2lkIn19--5b10a6106adc20044fe40132be3425abd7f77c0a/MXK93.png", oneTime: false, isPhysicalItem: true, digital: false },
+        { id: 202, title: "Cable Card", price: 150, description: "Get a $20 hcb card that can be spent on any cables or dongles! (this can be stacked, just buy multiple!)", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDkxLCJwdXIiOiJibG9iX2lkIn19--639bb38d27d0945fe87d74df8003325a9174da67/efd7b802-a673-46e8-9339-a275ab2603ba.77ec191b916ad4a518d82ec585a2ab85.png", oneTime: false, isPhysicalItem: true, digital: true },
+        { id: 203, title: "Hollow Knight", price: 100, description: "I hear this game is pretty cool. Lots of bugs. Fulfilled via Steam.", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDkyLCJwdXIiOiJibG9iX2lkIn19--4fb090ddd21ea1d979383da58f8674c4434a90e7/hero_capsule.png", oneTime: false, isPhysicalItem: true, digital: true },
+        { id: 204, title: "Silksong", price: 120, description: "It's like the last one but more red. Still lots of bugs. Fulfilled via Steam.", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDkzLCJwdXIiOiJibG9iX2lkIn19--b4465a46dff1f1ba770fc2b9fc85b44f8df570ef/hero_capsule_2x.png", oneTime: false, isPhysicalItem: true, digital: true },
+        { id: 205, title: "Stardew Valley", price: 100, description: "Take a break and farm... delivered via steam!", image: "/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6NDk0LCJwdXIiOiJibG9iX2lkIn19--c7cb354b7643a0e59fa7ecb6986ff24b9266ec8e/hero_capsule.png", oneTime: false, isPhysicalItem: true, digital: true }
+      ];
+    }
 
     try {
       const response = await utils.apiRequest('/market/mercenary_price');
       if (response && response.price) {
-        items[0].price = response.price;
+        const mercenaryItem = items.find(item => item.title === "Mercenary");
+        if (mercenaryItem) {
+          mercenaryItem.price = response.price;
+        }
       }
     } catch (error) {
-
+      console.warn('[Siege Utils] Failed to fetch mercenary price:', error);
     }
 
     return this.createItemGrid(items);
@@ -1456,8 +1505,6 @@ async function init() {
 }
 
 async function enhanceProjectCards() {
-  fixLayoutGap();
-
   const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
 
   const allProjectLinks = document.querySelectorAll('a[href*="/projects/"]');
@@ -1470,8 +1517,6 @@ async function enhanceProjectCards() {
 
     try {
       const projectData = await projectStats.extractProjectData(card);
-      const cardId = card.id.replace('project_', '');
-
 
       if (projectData) {
         const currentWeek = utils.getCurrentWeek();
@@ -1706,6 +1751,7 @@ if (typeof window !== 'undefined') {
     enhanceCoffersDisplay(projectionData);
     addTotalPillagingStats(currentCoins);
     addWeeklyBreakdownChart();
+    addWeeklyHoursPlanner();
     initCountdownTimer();
     homeContainer.dataset.siegeEnhanced = 'true';
 
@@ -2226,6 +2272,293 @@ ${legendMarkup}
     });
   }
 
+  function addWeeklyHoursPlanner() {
+    if (document.querySelector('[data-siege-hours-planner]')) {
+      return;
+    }
+
+    const shippedStats = projectStats.getStoredStats();
+    const timeTracking = projectStats.getStoredTimeTracking();
+    const currentWeek = utils.getCurrentWeek();
+    let currentWeekHours = 0;
+
+    Object.values(shippedStats).forEach(project => {
+      if (project.week === currentWeek) {
+        currentWeekHours += project.hours;
+      }
+    });
+
+    Object.keys(timeTracking).forEach(projectId => {
+      const tracking = timeTracking[projectId];
+      if (tracking.snapshots && tracking.snapshots.length > 0) {
+        const hasShippedData = Object.values(shippedStats).some(project =>
+          project.projectId === projectId || `project_${projectId}` in shippedStats
+        );
+        if (!hasShippedData) {
+          tracking.snapshots.forEach(snapshot => {
+            if (snapshot.week === currentWeek) {
+              currentWeekHours += snapshot.hours;
+            }
+          });
+        }
+      }
+    });
+
+    const savedConfig = localStorage.getItem('siegeutils_weeklydata');
+    let config = savedConfig ? JSON.parse(savedConfig) : {
+      workDays: [true, true, true, true, true, true, true],
+      fixedHours: [0, 0, 0, 0, 0, 0, 0],
+      persistAcrossWeeks: false,
+      savedWeek: currentWeek
+    };
+
+    if (!config.persistAcrossWeeks && config.savedWeek !== currentWeek) {
+      config = {
+        workDays: [true, true, true, true, true, true, true],
+        fixedHours: [0, 0, 0, 0, 0, 0, 0],
+        persistAcrossWeeks: false,
+        savedWeek: currentWeek
+      };
+      localStorage.setItem('siegeutils_weeklydata', JSON.stringify(config));
+    }
+
+    const weekGoal = 10;
+    const remainingHours = Math.max(0, weekGoal - currentWeekHours);
+
+    const now = new Date();
+    const dayOfWeek = (now.getDay() + 6) % 7; 
+
+    function calculateDailyHours() {
+      let totalFixedHours = 0;
+      let flexibleDays = 0;
+
+      for (let i = dayOfWeek; i < 7; i++) {
+        if (config.fixedHours[i] > 0) {
+          totalFixedHours += config.fixedHours[i];
+        } else if (config.workDays[i]) {
+          flexibleDays++;
+        }
+      }
+
+      const remainingAfterFixed = Math.max(0, remainingHours - totalFixedHours);
+      const hoursPerFlexDay = flexibleDays > 0 ? remainingAfterFixed / flexibleDays : 0;
+
+      return { hoursPerFlexDay, totalFixedHours, flexibleDays };
+    }
+
+    const { hoursPerFlexDay, totalFixedHours, flexibleDays } = calculateDailyHours();
+
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    const plannerHTML = `
+      <details data-siege-hours-planner="true" style="
+        margin: 0.75rem 0 0.75rem 0;
+        padding: 0;
+        background: rgba(255, 255, 255, 0.08);
+        border: 2px solid rgba(64, 43, 32, 0.65);
+        border-radius: 0.75rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      ">
+        <summary style="
+          cursor: pointer;
+          padding: 0.75rem 1rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          list-style: none;
+          user-select: none;
+        ">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-size: 1.1rem; font-weight: 600; color: #3b2a1a;">
+              📅 Weekly Hours Planner
+            </span>
+            <span style="font-size: 0.85rem; color: #6b5437;">
+              (<span style="font-weight: 600;">${currentWeekHours.toFixed(1)}h</span> / ${weekGoal}h)
+            </span>
+            ${(() => {
+              if (remainingHours <= 0) return '';
+
+              const parts = [];
+              const todayFixedHours = config.fixedHours[dayOfWeek];
+
+              if (todayFixedHours > 0) {
+                parts.push(`${todayFixedHours.toFixed(1)}h today`);
+              }
+
+              if (flexibleDays > 0 && hoursPerFlexDay > 0) {
+                const flexText = parts.length > 0
+                  ? `${hoursPerFlexDay.toFixed(1)}h/day for ${flexibleDays} days`
+                  : `~${hoursPerFlexDay.toFixed(1)}h/day`;
+                parts.push(flexText);
+              }
+
+              return parts.length > 0 ? `
+                <span style="font-size: 0.8rem; color: #047857; font-weight: 500;">
+                  • ${parts.join(' & ')}
+                </span>
+              ` : '';
+            })()}
+          </div>
+          <span id="planner-arrow" style="font-size: 0.75rem; color: #6b5437; transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);">▼</span>
+        </summary>
+        <div style="padding: 0 1.25rem 1.25rem 1.25rem;">
+
+        <div style="background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; text-align: center;">
+          <div style="font-size: 1.1rem; font-weight: 600; color: #059669; margin-bottom: 0.25rem;">
+            ${remainingHours > 0 ? `${remainingHours.toFixed(1)}h remaining` : '✅ Goal reached!'}
+          </div>
+          ${remainingHours > 0 ? `
+            <div style="font-size: 0.85rem; color: #047857;">
+              ${flexibleDays > 0
+                ? `~${hoursPerFlexDay.toFixed(1)}h per flexible day (${flexibleDays} days)`
+                : 'Adjust your schedule below'
+              }
+            </div>
+          ` : ''}
+        </div>
+
+        <div id="daily-breakdown" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+          ${dayNames.map((day, i) => {
+            const isPast = i < dayOfWeek;
+            const isToday = i === dayOfWeek;
+            const isWorkDay = config.workDays[i];
+            const fixedHours = config.fixedHours[i];
+            const displayHours = fixedHours > 0 ? fixedHours.toFixed(1) : (isWorkDay && !isPast ? hoursPerFlexDay.toFixed(1) : '0');
+
+            return `
+              <div style="
+                padding: 0.5rem;
+                background: ${isPast ? 'rgba(0,0,0,0.1)' : (isToday ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255,255,255,0.05)')};
+                border: 2px solid ${isPast ? 'rgba(0,0,0,0.2)' : (isToday ? 'rgba(59, 130, 246, 0.4)' : (isWorkDay ? 'rgba(52, 211, 153, 0.3)' : 'rgba(239, 68, 68, 0.3)'))};
+                border-radius: 0.5rem;
+                text-align: center;
+                opacity: ${isPast ? '0.5' : '1'};
+              ">
+                <div style="font-size: 0.7rem; font-weight: 600; color: #6b5437; margin-bottom: 0.25rem;">
+                  ${day}${isToday ? ' 📍' : ''}
+                </div>
+                <div style="font-size: 0.9rem; font-weight: 700; color: ${isPast ? '#9ca3af' : (isWorkDay ? '#059669' : '#dc2626')};">
+                  ${isPast ? '-' : displayHours + 'h'}
+                </div>
+                ${!isPast ? `
+                  <div style="font-size: 0.65rem; color: #6b5437; margin-top: 0.25rem;">
+                    ${fixedHours > 0 ? 'Fixed' : (isWorkDay ? 'Flex' : 'Off')}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <details style="margin-top: 1rem;">
+          <summary style="cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #6b5437; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 0.5rem;">
+            ⚙️ Configure Schedule
+          </summary>
+          <div id="schedule-config" style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.03); border-radius: 0.5rem;">
+            ${dayNames.map((day, i) => `
+              <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; padding: 0.5rem; background: rgba(255,255,255,0.5); border-radius: 0.5rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; min-width: 80px;">
+                  <input
+                    type="checkbox"
+                    id="workday-${i}"
+                    ${config.workDays[i] ? 'checked' : ''}
+                    ${i < dayOfWeek ? 'disabled' : ''}
+                    style="width: 16px; height: 16px; cursor: pointer;"
+                  >
+                  <span style="font-size: 0.85rem; font-weight: 600;">${day}</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.5rem; flex: 1;">
+                  <span style="font-size: 0.75rem; color: #6b5437;">Fixed:</span>
+                  <input
+                    type="number"
+                    id="fixed-hours-${i}"
+                    value="${config.fixedHours[i]}"
+                    min="0"
+                    max="24"
+                    step="0.5"
+                    ${i < dayOfWeek ? 'disabled' : ''}
+                    style="width: 60px; padding: 0.25rem; border: 1px solid rgba(64, 43, 32, 0.3); border-radius: 0.25rem; font-size: 0.85rem;"
+                  >
+                  <span style="font-size: 0.75rem; color: #6b5437;">hours</span>
+                </label>
+              </div>
+            `).join('')}
+
+            <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 0.5rem;">
+              <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer;">
+                <input
+                  type="checkbox"
+                  id="persist-schedule"
+                  ${config.persistAcrossWeeks ? 'checked' : ''}
+                  style="width: 18px; height: 18px; cursor: pointer;"
+                >
+                <div style="flex: 1;">
+                  <div style="font-size: 0.85rem; font-weight: 600; color: #1e40af;">
+                    Keep schedule across weeks
+                  </div>
+                  <div style="font-size: 0.7rem; color: #3b82f6; margin-top: 0.15rem;">
+                    If unchecked, schedule resets every week
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <button id="save-schedule" style="
+              margin-top: 1rem;
+              width: 100%;
+              padding: 0.5rem 1rem;
+              background: linear-gradient(135deg, #34d399, #059669);
+              color: white;
+              font-weight: 600;
+              border: none;
+              border-radius: 0.5rem;
+              cursor: pointer;
+              font-size: 0.9rem;
+            ">
+              Save Schedule
+            </button>
+          </div>
+        </details>
+        </div>
+      </details>
+    `;
+
+    const footer = document.querySelector('.home-progress-footer');
+    if (footer) {
+      const countdownContainer = document.getElementById('time-till-next-week-container');
+      if (countdownContainer) {
+        countdownContainer.insertAdjacentHTML('beforebegin', plannerHTML);
+      } else {
+        footer.insertAdjacentHTML('beforeend', plannerHTML);
+      }
+
+      document.getElementById('save-schedule')?.addEventListener('click', () => {
+        const persistCheckbox = document.getElementById('persist-schedule');
+        const newConfig = {
+          workDays: [],
+          fixedHours: [],
+          persistAcrossWeeks: persistCheckbox?.checked || false,
+          savedWeek: currentWeek
+        };
+
+        for (let i = 0; i < 7; i++) {
+          const workdayCheckbox = document.getElementById(`workday-${i}`);
+          const fixedHoursInput = document.getElementById(`fixed-hours-${i}`);
+
+          newConfig.workDays[i] = workdayCheckbox?.checked || false;
+          newConfig.fixedHours[i] = parseFloat(fixedHoursInput?.value || '0');
+        }
+
+        localStorage.setItem('siegeutils_weeklydata', JSON.stringify(newConfig));
+
+        document.querySelector('[data-siege-hours-planner]')?.remove();
+        addWeeklyHoursPlanner();
+
+        components.showToast('Schedule saved! ✅');
+      });
+    }
+  }
+
   function initCountdownTimer() {
     const footer = document.querySelector('.home-progress-footer');
     if (!footer) return;
@@ -2283,6 +2616,16 @@ ${legendMarkup}
       }
   }
 
+  async function enhanceShopPage() {
+    if (window.location.pathname !== '/shop') return;
+
+    const shopItems = await shopUtils.getShopItems();
+
+    if (shopItems) {
+      window.siegeUtilsShopItems = shopItems
+    } 
+  }
+
   function handleNavigation() {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
@@ -2294,6 +2637,10 @@ ${legendMarkup}
       navigationTimeout = setTimeout(() => {
         if (window.location.pathname.startsWith('/market')) {
           init();
+        }
+
+        if (window.location.pathname === '/shop') {
+          enhanceShopPage();
         }
 
         initProjectStats();
@@ -2333,12 +2680,18 @@ ${legendMarkup}
       if (window.location.pathname.startsWith('/market')) {
         init();
       }
+      if (window.location.pathname === '/shop') {
+        enhanceShopPage();
+      }
       initProjectStats();
       initKeepEnhancements();
     });
   } else {
     if (window.location.pathname.startsWith('/market')) {
       init();
+    }
+    if (window.location.pathname === '/shop') {
+      enhanceShopPage();
     }
     initProjectStats();
     initKeepEnhancements();

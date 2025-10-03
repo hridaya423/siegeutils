@@ -1,13 +1,16 @@
 {
   "manifest_version": 2,
   "name": "Siege Utils",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Enhance the Siege experience with better UI and features",
   "permissions": [
     "activeTab",
     "storage",
     "https://siege.hackclub.com/*"
   ],
+  "background": {
+    "scripts": ["background.js"]
+  },
   "content_scripts": [
     {
       "matches": ["https://siege.hackclub.com/*"],
