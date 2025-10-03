@@ -43,6 +43,17 @@ const utils = {
     return userPurchases.some(p => p.item_name === itemName && p.quantity > 0);
   },
 
+  getCurrentCoins() {
+    const coffersTitle = document.querySelector('.home-section-title');
+    if (coffersTitle && coffersTitle.textContent.includes('Your coffers:')) {
+      const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
+      if (coinMatch) {
+        return parseInt(coinMatch[1]);
+      }
+    }
+    return userCoins || 0;
+  },
+
   getDefaultDevice(category) {
     if (!techTreeData || !techTreeData[category]) {
       return null;
@@ -734,7 +745,7 @@ const goals = {
     const totalCost = this.getTotalCost();
     if (totalCost === 0) return { current: 0, total: 0, percentage: 100 };
 
-    const current = Math.min(userCoins, totalCost);
+    const current = userCoins;
     const percentage = Math.min((current / totalCost) * 100, 100);
 
     return {
@@ -778,11 +789,50 @@ const goals = {
     return predictedEfficiency;
   },
 
+  estimateTimeForItem(itemPrice, currentCoins) {
+    const shippedStats = projectStats.getStoredStats();
+    const avgEfficiency = projectStats.getAverageEfficiency();
+    const week5PlusEfficiency = this.getWeek5PlusEfficiency();
+
+    const allWeeklyHours = {};
+    Object.values(shippedStats).forEach(project => {
+      if (!allWeeklyHours[project.week]) allWeeklyHours[project.week] = 0;
+      allWeeklyHours[project.week] += project.hours;
+    });
+
+    const calculateTimeFromZero = (coins) => {
+      const week1to4Projects = Object.values(shippedStats).filter(project => project.week <= 4);
+      const coinsFromWeek1to4 = week1to4Projects.reduce((sum, p) => sum + p.total_coins, 0);
+
+      const coinsStillNeeded = Math.max(0, coins - coinsFromWeek1to4);
+
+      if (coinsStillNeeded === 0) {
+        return coins / avgEfficiency;
+      }
+
+      const timeForWeek1to4Coins = coinsFromWeek1to4 > 0 ? coinsFromWeek1to4 / avgEfficiency : 0;
+      const timeForWeek5PlusCoins = coinsStillNeeded / week5PlusEfficiency;
+
+      return timeForWeek1to4Coins + timeForWeek5PlusCoins;
+    };
+
+    const totalTime = calculateTimeFromZero(itemPrice);
+    const remainingNeeded = Math.max(0, itemPrice - currentCoins);
+    const timeNeeded = remainingNeeded > 0 ? calculateTimeFromZero(remainingNeeded) : 0;
+
+    return {
+      totalHours: totalTime,
+      totalTime: utils.formatHours(totalTime),
+      neededHours: timeNeeded,
+      timeNeeded: utils.formatHours(timeNeeded)
+    };
+  },
+
   getProjectionData() {
     const progress = this.getProgress();
     const avgEfficiency = projectStats.getAverageEfficiency();
     const currentWeek = utils.getCurrentWeek();
-    const remainingCoins = progress.total - progress.current;
+    const remainingCoins = Math.max(0, progress.total - progress.current);
 
     const week5PlusEfficiency = this.getWeek5PlusEfficiency();
 
@@ -859,7 +909,9 @@ const goals = {
 
     const projectedFromUnshipped = totalUnshippedCoins;
     const remainingAfterUnshipped = Math.max(0, remainingCoins - projectedFromUnshipped);
-    const additionalHoursNeeded = remainingAfterUnshipped / effectiveEfficiency;
+    const additionalHoursNeeded = remainingAfterUnshipped > 0 && effectiveEfficiency > 0
+      ? remainingAfterUnshipped / effectiveEfficiency
+      : 0;
     const projectedTotal = progress.current + projectedFromUnshipped;
     const projectedPercentage = Math.min((projectedTotal / progress.total) * 100, 100);
 
@@ -945,7 +997,7 @@ const goals = {
             "></div>
           </div>
           <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
-            ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(progress.total - progress.current)} remaining • ${utils.formatHours(projectionData.totalHoursNeeded)} needed
+            ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(Math.max(0, progress.total - progress.current))} remaining • ${utils.formatHours(projectionData.totalHoursNeeded)} needed
           </div>
         </div>
 
@@ -970,16 +1022,17 @@ const goals = {
               width: ${Math.max(2, progress.percentage)}%;
               height: calc(100% - 4px);
               background: linear-gradient(145deg, #10b981, #059669);
-              border-radius: 10px 0 0 10px;
-              margin: 2px 0 2px 2px;
+              border-radius: ${projectionData.projectedPercentage > progress.percentage ? '10px 0 0 10px' : '10px'};
+              margin: 2px ${projectionData.projectedPercentage > progress.percentage ? '0' : '2px'} 2px 2px;
               position: absolute;
               left: 0;
               top: 0;
               box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
               transition: all 0.3s ease;
             "></div>
+            ${projectionData.projectedPercentage > progress.percentage ? `
             <div style="
-              width: ${Math.max(1, projectionData.projectedPercentage - progress.percentage)}%;
+              width: ${projectionData.projectedPercentage - progress.percentage}%;
               height: calc(100% - 4px);
               background: linear-gradient(145deg, #60a5fa, #3b82f6);
               border-radius: 0 10px 10px 0;
@@ -990,6 +1043,7 @@ const goals = {
               box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
               transition: all 0.3s ease;
             "></div>
+            ` : ''}
           </div>
           <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
             ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(projectionData.remainingAfterUnshipped)} remaining • ${utils.formatHours(projectionData.additionalHoursNeeded)} needed
@@ -1134,6 +1188,7 @@ const components = {
   createItemCard(item) {
     const purchased = utils.isPurchased(item.title);
     const affordable = utils.canAfford(item.price);
+    const currentCoins = utils.getCurrentCoins();
 
     let statusClass = 'unaffordable';
     let statusText = 'Cannot afford';
@@ -1147,6 +1202,14 @@ const components = {
     }
 
     const cardClass = `siege-item-card ${!affordable && !purchased ? 'disabled' : ''}`;
+
+    const estimate = goals.estimateTimeForItem(item.price, currentCoins);
+    const timeEstimate = `
+      <div style="font-size: 0.85rem; color: #6b5437; margin-top: 0.5rem; line-height: 1.4;">
+        ⏱️ Total time: <strong>${estimate.totalTime}</strong><br>
+        ${estimate.neededHours > 0 ? `⏱️ Time needed: <strong>${estimate.timeNeeded}</strong>` : ''}
+      </div>
+    `;
 
     return `
       <div class="${cardClass}" data-item="${encodeURIComponent(JSON.stringify(item))}">
@@ -1162,6 +1225,7 @@ const components = {
           <span class="siege-status-badge ${statusClass}">${statusText}</span>
           ${item.requires ? `<span class="siege-status-badge">Requires: ${item.requires}</span>` : ''}
         </div>
+        ${timeEstimate}
         ${goals.createGoalButton(item)}
       </div>
     `;
