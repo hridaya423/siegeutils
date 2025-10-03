@@ -165,12 +165,11 @@ const projectStats = {
   },
 
   generateDiscreteVoterAverages() {
-    const averages = new Set();
-    for (let sum = 10; sum <= 50; sum++) {
-      const avg = sum / 10;
-      averages.add(Math.round(avg * 100) / 100);
+    const averages = [];
+    for (let i = 10; i <= 50; i++) {
+      averages.push(i / 10);
     }
-    return Array.from(averages).sort((a, b) => a - b);
+    return averages;
   },
 
   estimateReviewerAndVoterStats(totalCoins, week, hours) {
@@ -188,6 +187,17 @@ const projectStats = {
     }
 
     const target = totalCoins / (baseMultiplier * hours);
+
+    const stats = this.getStoredStats();
+    const pastProjects = Object.values(stats).filter(p => p.week === week);
+    let historicalRbAvg = 1.5;
+    let historicalStarsAvg = 3.0;
+
+    if (pastProjects.length > 0) {
+      historicalRbAvg = pastProjects.reduce((sum, p) => sum + p.reviewer_bonus, 0) / pastProjects.length;
+      historicalStarsAvg = pastProjects.reduce((sum, p) => sum + p.avg_score, 0) / pastProjects.length;
+    }
+
     const validCombinations = [];
     const discreteVoterAverages = this.generateDiscreteVoterAverages();
 
@@ -196,15 +206,19 @@ const projectStats = {
         const calculatedTarget = rb * avgStars;
         const targetDeviation = Math.abs(calculatedTarget - target);
 
-        if (targetDeviation / target < 0.15) {
-          const biasCorrection = (rb - 1.5) * 0.2 - (avgStars - 3.0) * 0.1;
+        if (targetDeviation / target < 0.12) {
+          const rbBias = pastProjects.length > 0 ? historicalRbAvg : 1.5;
+          const starsBias = pastProjects.length > 0 ? historicalStarsAvg : 3.0;
+
+          const biasCorrection = (rb - rbBias) * 0.08 - (avgStars - starsBias) * 0.08;
           const adjustedDeviation = targetDeviation - biasCorrection;
 
           validCombinations.push({
             reviewerBonus: rb,
             avgVoterStars: avgStars,
             correlationDeviation: adjustedDeviation,
-            targetDeviation: targetDeviation
+            targetDeviation: targetDeviation,
+            quality: 1 / (targetDeviation + 0.01)
           });
         }
       }
@@ -220,18 +234,24 @@ const projectStats = {
 
     let totalRb = 0;
     let totalStars = 0;
+    let totalWeight = 0;
 
     topResults.forEach((result) => {
-      totalRb += result.reviewerBonus;
-      totalStars += result.avgVoterStars;
+      totalRb += result.reviewerBonus * result.quality;
+      totalStars += result.avgVoterStars * result.quality;
+      totalWeight += result.quality;
     });
 
-    const avgReviewerBonus = totalRb / topResults.length;
-    const avgVoterStars = totalStars / topResults.length;
+    const avgReviewerBonus = totalRb / totalWeight;
+    const avgVoterStars = totalStars / totalWeight;
+
+    const finalReviewerBonus = Math.round(avgReviewerBonus * 10) / 10;
+    const finalVoterStars = Math.round(avgVoterStars * 10) / 10;
+
 
     return {
-      reviewerBonus: Math.round(avgReviewerBonus * 100) / 100,
-      avgVoterStars: Math.round(avgVoterStars * 100) / 100
+      reviewerBonus: finalReviewerBonus,
+      avgVoterStars: finalVoterStars
     };
   },
 
