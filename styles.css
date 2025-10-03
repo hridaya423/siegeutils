@@ -18,8 +18,43 @@ body, html {
   max-height: none !important;
 }
 
+/* Navbar layout fixes */
+.navbar {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+}
+
+.navbar .navbar-header {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+
+.navbar .meeple-avatar {
+  position: relative !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.navbar .meeple-content {
+  position: relative !important;
+}
+
+.navbar .meeple-content img {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+}
+
 .siege-shop-container {
+  margin-left: 10rem;
   padding: 2rem;
+}
+
+.siege-goals-progress {
+  margin-left: 0 !important;
 }
 
 .siege-shop-header {
