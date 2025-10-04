@@ -2710,6 +2710,107 @@ ${legendMarkup}
     } 
   }
 
+  function enhanceNavbar() {
+    const navbarNav = document.querySelector('.navbar-nav');
+    if (!navbarNav || navbarNav.dataset.siegeEnhanced) return;
+
+    const currentPath = window.location.pathname;
+
+    const navLinks = [
+      { path: '/keep', label: 'Keep' },
+      { path: '/great-hall', label: 'Great Hall' },
+      { path: '/armory', label: 'Armory' },
+      { path: '/market', label: 'Market' }
+    ];
+
+    const backButton = navbarNav.querySelector('a[href="/castle"]');
+    navbarNav.innerHTML = '';
+
+    navLinks.forEach(link => {
+      const isActive = currentPath === link.path || currentPath.startsWith(link.path + '/');
+      if (isActive) {
+        const span = document.createElement('span');
+        span.className = 'navbar-link active';
+        span.textContent = link.label;
+        navbarNav.appendChild(span);
+      } else {
+        const a = document.createElement('a');
+        a.className = 'navbar-link';
+        a.href = link.path;
+        a.textContent = link.label;
+        navbarNav.appendChild(a);
+      }
+    });
+
+    if (backButton) {
+      navbarNav.appendChild(backButton);
+    }
+
+    navbarNav.dataset.siegeEnhanced = 'true';
+  }
+
+  function addCastleTooltips() {
+    if (window.location.pathname !== '/castle') return;
+    if (document.querySelector('.siege-castle-tooltip')) return;
+
+    const tooltipStyle = document.createElement('style');
+    tooltipStyle.textContent = `
+      .siege-castle-tooltip {
+        position: fixed;
+        background: rgba(40, 30, 20, 0.95);
+        color: #f5e7b7;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-size: 1rem;
+        font-weight: 600;
+        pointer-events: none;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        border: 2px solid rgba(245, 231, 183, 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      }
+      .siege-castle-tooltip.visible {
+        opacity: 1;
+      }
+    `;
+    document.head.appendChild(tooltipStyle);
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'siege-castle-tooltip';
+    document.body.appendChild(tooltip);
+
+    const areaLabels = {
+      'keep': 'Keep',
+      'great-hall': 'Great Hall',
+      'armory': 'Armory',
+      'market': 'Market',
+      'chambers': 'Chambers',
+      'map': 'Map'
+    };
+
+    setTimeout(() => {
+      Object.keys(areaLabels).forEach(id => {
+        const svgPath = document.querySelector(`.hover-box svg path#${id}`);
+        if (!svgPath) return;
+
+        svgPath.addEventListener('mouseenter', (e) => {
+          tooltip.textContent = areaLabels[id];
+          tooltip.classList.add('visible');
+        });
+
+        svgPath.addEventListener('mousemove', (e) => {
+          tooltip.style.left = (e.clientX + 15) + 'px';
+          tooltip.style.top = (e.clientY + 15) + 'px';
+        });
+
+        svgPath.addEventListener('mouseleave', () => {
+          tooltip.classList.remove('visible');
+        });
+      });
+    }, 500);
+  }
+
   function handleNavigation() {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
@@ -2727,8 +2828,13 @@ ${legendMarkup}
           enhanceShopPage();
         }
 
+        if (window.location.pathname === '/castle') {
+          addCastleTooltips();
+        }
+
         initProjectStats();
         initKeepEnhancements();
+        enhanceNavbar();
         navigationTimeout = null;
       }, 300);
     }
@@ -2767,8 +2873,12 @@ ${legendMarkup}
       if (window.location.pathname === '/shop') {
         enhanceShopPage();
       }
+      if (window.location.pathname === '/castle') {
+        addCastleTooltips();
+      }
       initProjectStats();
       initKeepEnhancements();
+      enhanceNavbar();
     });
   } else {
     if (window.location.pathname.startsWith('/market')) {
@@ -2777,8 +2887,12 @@ ${legendMarkup}
     if (window.location.pathname === '/shop') {
       enhanceShopPage();
     }
+    if (window.location.pathname === '/castle') {
+      addCastleTooltips();
+    }
     initProjectStats();
     initKeepEnhancements();
+    enhanceNavbar();
   }
 }
 
