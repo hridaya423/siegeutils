@@ -2816,6 +2816,30 @@ ${legendMarkup}
       navbarNav.appendChild(backButton);
     }
 
+    const navbarHeader = document.querySelector('.navbar-header');
+    if (navbarHeader && !navbarHeader.querySelector('.navbar-coins')) {
+      const currentCoins = utils.getCurrentCoins();
+      if (currentCoins > 0) {
+        const userMeta = navbarHeader.querySelector('.user-meta');
+
+        if (userMeta) {
+          userMeta.style.display = 'flex';
+          userMeta.style.alignItems = 'center';
+          userMeta.style.gap = '0.5rem';
+
+          const coinsDisplay = document.createElement('div');
+          coinsDisplay.className = 'navbar-coins';
+          coinsDisplay.innerHTML = `${currentCoins} 🪙`;
+          userMeta.appendChild(coinsDisplay);
+        } else {
+          const coinsDisplay = document.createElement('div');
+          coinsDisplay.className = 'navbar-coins';
+          coinsDisplay.innerHTML = `${currentCoins} 🪙`;
+          navbarHeader.appendChild(coinsDisplay);
+        }
+      }
+    }
+
     navbarNav.dataset.siegeEnhanced = 'true';
   }
 

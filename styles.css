@@ -29,6 +29,13 @@ body, html {
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.navbar .navbar-header > div {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
 }
 
 .navbar .meeple-avatar {
@@ -46,6 +53,17 @@ body, html {
   position: relative !important;
   left: auto !important;
   top: auto !important;
+}
+
+.navbar-coins {
+  padding: 0.35rem 0.6rem;
+  background: rgba(120, 84, 55, 0.15);
+  border: 1.5px solid rgba(120, 84, 55, 0.3);
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3b2a1a;
+  white-space: nowrap;
 }
 
 .siege-shop-container {
