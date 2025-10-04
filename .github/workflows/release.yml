@@ -64,6 +64,10 @@ jobs:
         [ -f icon128.png ] && cp icon128.png temp-chrome-extension/
         [ -f chart.umd.js ] && cp chart.umd.js temp-chrome-extension/
         [ -f background.js ] && cp background.js temp-chrome-extension/
+        [ -f popup.js ] && cp popup.js temp-chrome-extension/
+        [ -f popup.css ] && cp popup.css temp-chrome-extension/
+        [ -f popup.html ] && cp popup.html temp-chrome-extension/
+        [ -f catpuccin.css ] && cp catpuccin.css temp-chrome-extension/
 
         # Create Chrome ZIP
         cd temp-chrome-extension
@@ -90,6 +94,10 @@ jobs:
         [ -f icon128.png ] && cp icon128.png temp-firefox-extension/
         [ -f chart.umd.js ] && cp chart.umd.js temp-firefox-extension/
         [ -f background.js ] && cp background.js temp-firefox-extension/
+        [ -f popup.js ] && cp popup.js temp-firefox-extension/
+        [ -f popup.css ] && cp popup.css temp-firefox-extension/
+        [ -f popup.html ] && cp popup.html temp-firefox-extension/
+        [ -f catpuccin.css ] && cp catpuccin.css temp-firefox-extension/
 
         # Create Firefox ZIP
         cd temp-firefox-extension

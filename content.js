@@ -1657,6 +1657,103 @@ async function init() {
   }
 }
 
+function addProjectControls() {
+  if (document.querySelector('.siege-project-controls')) return;
+
+  const projectsActions = document.querySelector('.projects-actions');
+  if (!projectsActions) return;
+
+  const controlsHTML = `
+    <div class="siege-project-controls" style="display: flex; gap: 0.5rem; align-items: center;">
+      <select id="siege-sort" style="padding: 0.375rem 0.5rem; border-radius: 0.25rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: inherit; font-size: 0.875rem;">
+        <option value="default">Sort by...</option>
+        <option value="hours-desc">Hours (Descending)</option>
+        <option value="hours-asc">Hours (Ascending)</option>
+        <option value="coins-desc">Coins (Descending)</option>
+        <option value="coins-asc">Coins (Ascending)</option>
+        <option value="efficiency-desc">Efficiency (Descending)</option>
+      </select>
+      <select id="siege-filter" style="padding: 0.375rem 0.5rem; border-radius: 0.25rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: inherit; font-size: 0.875rem;">
+        <option value="all">All Projects</option>
+        <option value="shipped">Shipped</option>
+        <option value="unshipped">Unshipped</option>
+      </select>
+    </div>
+  `;
+
+  projectsActions.insertAdjacentHTML('beforeend', controlsHTML);
+
+  document.getElementById('siege-sort').addEventListener('change', applyProjectSort);
+  document.getElementById('siege-filter').addEventListener('change', applyProjectFilter);
+}
+
+function applyProjectSort(e) {
+  const sortValue = e.target.value;
+  const projectCards = Array.from(document.querySelectorAll('article.project-card[id^="project_"]'));
+  const container = projectCards[0]?.parentElement;
+  if (!container) return;
+
+  projectCards.sort((a, b) => {
+    const aData = extractCardData(a);
+    const bData = extractCardData(b);
+
+    switch (sortValue) {
+      case 'hours-desc':
+        return bData.hours - aData.hours;
+      case 'hours-asc':
+        return aData.hours - bData.hours;
+      case 'coins-desc':
+        return bData.coins - aData.coins;
+      case 'coins-asc':
+        return aData.coins - bData.coins;
+      case 'efficiency-desc':
+        return bData.efficiency - aData.efficiency;
+      default:
+        return 0;
+    }
+  });
+
+  projectCards.forEach(card => container.appendChild(card));
+}
+
+function applyProjectFilter(e) {
+  const filterValue = e.target.value;
+  const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
+
+  projectCards.forEach(card => {
+    const data = extractCardData(card);
+
+    if (filterValue === 'all') {
+      card.style.display = '';
+    } else if (filterValue === 'shipped') {
+      card.style.display = data.shipped ? '' : 'none';
+    } else if (filterValue === 'unshipped') {
+      card.style.display = !data.shipped ? '' : 'none';
+    }
+  });
+}
+
+function extractCardData(card) {
+  const statusElement = card.querySelector('.project-status-indicator');
+  const statusText = statusElement ? statusElement.textContent : '';
+  const hasCoins = statusText.includes('🪙') || /\d+\.\d+/.test(statusText);
+
+  const efficiencyBox = card.querySelector('.siege-efficiency-box');
+  let hours = 0;
+  let coins = 0;
+  let efficiency = 0;
+
+  if (efficiencyBox) {
+    const hoursMatch = efficiencyBox.textContent.match(/(\d+\.?\d*)h/);
+    const coinsMatch = statusText.match(/(\d+\.?\d*)/);
+    hours = hoursMatch ? parseFloat(hoursMatch[1]) : 0;
+    coins = coinsMatch ? parseFloat(coinsMatch[1]) : 0;
+    efficiency = hours > 0 ? coins / hours : 0;
+  }
+
+  return { hours, coins, efficiency, shipped: hasCoins };
+}
+
 async function enhanceProjectCards() {
   const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
 
@@ -1708,6 +1805,8 @@ async function enhanceProjectCards() {
       console.error('Failed to enhance project card:', error);
     }
   }
+
+  addProjectControls();
 }
 
 async function enhanceProjectPage() {
