@@ -1697,20 +1697,37 @@ function applyProjectSort(e) {
     const aData = extractCardData(a);
     const bData = extractCardData(b);
 
+    let comparison;
+
     switch (sortValue) {
+      case 'default':
+        comparison = aData.originalIndex - bData.originalIndex;
+        break;
       case 'hours-desc':
-        return bData.hours - aData.hours;
+        comparison = bData.hours - aData.hours;
+        break;
       case 'hours-asc':
-        return aData.hours - bData.hours;
+        comparison = aData.hours - bData.hours;
+        break;
       case 'coins-desc':
-        return bData.coins - aData.coins;
+        comparison = bData.coins - aData.coins;
+        break;
       case 'coins-asc':
-        return aData.coins - bData.coins;
+        comparison = aData.coins - bData.coins;
+        break;
       case 'efficiency-desc':
-        return bData.efficiency - aData.efficiency;
+        comparison = bData.efficiency - aData.efficiency;
+        break;
       default:
-        return 0;
+        comparison = 0;
+        break;
     }
+
+    if (comparison === 0) {
+      comparison = aData.originalIndex - bData.originalIndex;
+    }
+
+    return comparison;
   });
 
   projectCards.forEach(card => container.appendChild(card));
@@ -1734,35 +1751,67 @@ function applyProjectFilter(e) {
 }
 
 function extractCardData(card) {
-  const statusElement = card.querySelector('.project-status-indicator');
-  const statusText = statusElement ? statusElement.textContent : '';
-  const hasCoins = statusText.includes('🪙') || /\d+\.\d+/.test(statusText);
+  const dataset = card.dataset || {};
 
-  const efficiencyBox = card.querySelector('.siege-efficiency-box');
-  let hours = 0;
-  let coins = 0;
-  let efficiency = 0;
+  let hours = parseFloat(dataset.siegeHours);
+  let coins = parseFloat(dataset.siegeCoins);
+  let efficiency = parseFloat(dataset.siegeEfficiency);
+  let shipped;
+  const originalIndexRaw = parseInt(dataset.siegeOriginalIndex ?? '-1', 10);
+  let originalIndex = Number.isNaN(originalIndexRaw) ? -1 : originalIndexRaw;
 
-  if (efficiencyBox) {
-    const hoursMatch = efficiencyBox.textContent.match(/(\d+\.?\d*)h/);
-    const coinsMatch = statusText.match(/(\d+\.?\d*)/);
-    hours = hoursMatch ? parseFloat(hoursMatch[1]) : 0;
-    coins = coinsMatch ? parseFloat(coinsMatch[1]) : 0;
-    efficiency = hours > 0 ? coins / hours : 0;
+  if (typeof dataset.siegeShipped === 'string') {
+    shipped = dataset.siegeShipped === 'true';
   }
 
-  return { hours, coins, efficiency, shipped: hasCoins };
+  const datasetHasValues = !Number.isNaN(hours) && !Number.isNaN(coins) && !Number.isNaN(efficiency);
+
+  if (!datasetHasValues || typeof shipped === 'undefined') {
+    const statusElement = card.querySelector('.project-status-indicator');
+    const statusText = statusElement ? statusElement.textContent : '';
+    const fallbackShipped = statusText.includes('🪙') || /\d+\.\d+/.test(statusText);
+
+    const efficiencyBox = card.querySelector('.siege-efficiency-box');
+    let fallbackHours = 0;
+    let fallbackCoins = 0;
+    let fallbackEfficiency = 0;
+
+    if (efficiencyBox) {
+      const hoursMatch = efficiencyBox.textContent.match(/(\d+\.?\d*)h/);
+      const coinsMatch = statusText.match(/(\d+\.?\d*)/);
+      fallbackHours = hoursMatch ? parseFloat(hoursMatch[1]) : 0;
+      fallbackCoins = coinsMatch ? parseFloat(coinsMatch[1]) : 0;
+      fallbackEfficiency = fallbackHours > 0 ? fallbackCoins / fallbackHours : 0;
+    }
+
+    if (Number.isNaN(hours)) hours = fallbackHours;
+    if (Number.isNaN(coins)) coins = fallbackCoins;
+    if (Number.isNaN(efficiency)) efficiency = fallbackEfficiency;
+    if (typeof shipped === 'undefined') shipped = fallbackShipped;
+  }
+
+  return {
+    hours: Number.isFinite(hours) ? hours : 0,
+    coins: Number.isFinite(coins) ? coins : 0,
+    efficiency: Number.isFinite(efficiency) ? efficiency : 0,
+    shipped: Boolean(shipped),
+    originalIndex: originalIndex >= 0 ? originalIndex : Number.MAX_SAFE_INTEGER
+  };
 }
 
 async function enhanceProjectCards() {
-  const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
+  const projectCards = Array.from(document.querySelectorAll('article.project-card[id^="project_"]'));
 
   const allProjectLinks = document.querySelectorAll('a[href*="/projects/"]');
   allProjectLinks.forEach(link => {
     link.href = link.href.replace('/projects/', '/armory/');
   });
 
-  for (const card of projectCards) {
+  for (const [index, card] of projectCards.entries()) {
+    if (typeof card.dataset.siegeOriginalIndex === 'undefined') {
+      card.dataset.siegeOriginalIndex = index.toString();
+    }
+
     if (card.querySelector('.siege-efficiency-box')) continue;
 
     try {
@@ -1791,6 +1840,17 @@ async function enhanceProjectCards() {
             projectStats.trackProjectTime(projectData.projectId, projectData.hours, projectData.week);
           }
         }
+
+        const normalizedHours = Number.isFinite(projectData.hours) ? projectData.hours : 0;
+        const normalizedCoins = Number.isFinite(projectData.totalCoins) ? projectData.totalCoins : 0;
+        const normalizedEfficiency = normalizedHours > 0 && normalizedCoins > 0
+          ? normalizedCoins / normalizedHours
+          : (Number.isFinite(projectData.coinsPerHour) ? projectData.coinsPerHour : 0);
+
+        card.dataset.siegeHours = normalizedHours.toString();
+        card.dataset.siegeCoins = normalizedCoins.toString();
+        card.dataset.siegeEfficiency = normalizedEfficiency.toString();
+        card.dataset.siegeShipped = (!isUnshipped).toString();
 
         const reviewerFeedback = card.querySelector('.reviewer-feedback-indicator');
         const projectFooter = card.querySelector('.project-footer');

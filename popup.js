@@ -1,4 +1,27 @@
 
+const browserAPI = typeof browser !== 'undefined' ? browser : {
+  storage: {
+    sync: {
+      get: (keys) => new Promise(resolve => chrome.storage.sync.get(keys, resolve)),
+      set: (items) => new Promise(resolve => chrome.storage.sync.set(items, resolve))
+    }
+  },
+  tabs: {
+    query: (queryInfo) => new Promise(resolve => chrome.tabs.query(queryInfo, resolve)),
+    reload: (tabId) => new Promise(resolve => chrome.tabs.reload(tabId, resolve)),
+    sendMessage: (tabId, message) => new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        const error = chrome.runtime?.lastError;
+        if (error) {
+          reject(new Error(error.message));
+        } else {
+          resolve(response);
+        }
+      });
+    })
+  }
+};
+
 const defaultColors = {
   base: '#1e1e2e', mantle: '#181825', crust: '#11111b',
   surface0: '#313244', surface1: '#45475a', surface2: '#585b70',
@@ -15,7 +38,7 @@ const defaultHue = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  let { theme = 'classic', disableHues = false, customColors = {}, customHue = {} } = await chrome.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue']);
+  let { theme = 'classic', disableHues = false, customColors = {}, customHue = {} } = await browserAPI.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue']);
 
   const themeRadio = document.querySelector(`input[value="${theme}"]`);
   if (themeRadio) {
@@ -42,7 +65,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       input.value = customColors[key] || defaultColors[key];
       input.addEventListener('input', async (e) => {
         customColors[key] = e.target.value;
-        await chrome.storage.sync.set({ customColors });
+        await browserAPI.storage.sync.set({ customColors });
         notifyColorChange();
       });
     }
@@ -53,29 +76,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     radio.addEventListener('change', async (e) => {
       const selectedTheme = e.target.value;
 
-      await chrome.storage.sync.set({ theme: selectedTheme });
+      await browserAPI.storage.sync.set({ theme: selectedTheme });
       applyPopupTheme(selectedTheme);
 
       settingsDiv.style.display = selectedTheme === 'catppuccin' ? 'block' : 'none';
       customSettingsDiv.style.display = selectedTheme === 'custom' ? 'block' : 'none';
 
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        chrome.tabs.reload(tab.id);
+        try {
+          await browserAPI.tabs.reload(tab.id);
+        } catch (error) {
+          console.error('Failed to reload active tab after theme change', error);
+        }
       }
     });
   });
 
   disableHuesCheckbox.addEventListener('change', async (e) => {
     const disableHues = e.target.checked;
-    await chrome.storage.sync.set({ disableHues });
+    await browserAPI.storage.sync.set({ disableHues });
 
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'TOGGLE_HUES',
-        disableHues
-      });
+      try {
+        await browserAPI.tabs.sendMessage(tab.id, {
+          type: 'TOGGLE_HUES',
+          disableHues
+        });
+      } catch (error) {
+        console.error('Failed to toggle hues in active tab', error);
+      }
     }
   });
 
@@ -99,7 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const value = parseInt(e.target.value);
     hueRotateValue.textContent = `${value}deg`;
     customHue.hueRotate = value;
-    await chrome.storage.sync.set({ customHue });
+    await browserAPI.storage.sync.set({ customHue });
     notifyHueChange();
   });
 
@@ -107,7 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const value = parseInt(e.target.value);
     saturateValue.textContent = (value / 100).toFixed(1);
     customHue.saturate = value;
-    await chrome.storage.sync.set({ customHue });
+    await browserAPI.storage.sync.set({ customHue });
     notifyHueChange();
   });
 
@@ -115,7 +146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const value = parseInt(e.target.value);
     brightnessValue.textContent = (value / 100).toFixed(1);
     customHue.brightness = value;
-    await chrome.storage.sync.set({ customHue });
+    await browserAPI.storage.sync.set({ customHue });
     notifyHueChange();
   });
 
@@ -130,7 +161,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     hueRotateValue.textContent = `${defaultHue.hueRotate}deg`;
     saturateValue.textContent = (defaultHue.saturate / 100).toFixed(1);
     brightnessValue.textContent = (defaultHue.brightness / 100).toFixed(1);
-    await chrome.storage.sync.set({ customColors: defaultColors, customHue: defaultHue });
+    await browserAPI.storage.sync.set({ customColors: defaultColors, customHue: defaultHue });
     notifyColorChange();
     notifyHueChange();
   });
@@ -140,28 +171,32 @@ function applyPopupTheme(theme) {
   document.body.setAttribute('data-theme', theme === 'custom' ? 'catppuccin' : theme);
 }
 
-function notifyColorChange() {
-  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+async function notifyColorChange() {
+  try {
+    const [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
-      chrome.storage.sync.get('customColors', ({ customColors }) => {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'UPDATE_CUSTOM_COLORS',
-          customColors
-        });
+      const { customColors } = await browserAPI.storage.sync.get('customColors');
+      await browserAPI.tabs.sendMessage(tab.id, {
+        type: 'UPDATE_CUSTOM_COLORS',
+        customColors
       });
     }
-  });
+  } catch (error) {
+    console.error('Failed to notify color change', error);
+  }
 }
 
-function notifyHueChange() {
-  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+async function notifyHueChange() {
+  try {
+    const [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
-      chrome.storage.sync.get('customHue', ({ customHue }) => {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'UPDATE_CUSTOM_HUE',
-          customHue
-        });
+      const { customHue } = await browserAPI.storage.sync.get('customHue');
+      await browserAPI.tabs.sendMessage(tab.id, {
+        type: 'UPDATE_CUSTOM_HUE',
+        customHue
       });
     }
-  });
+  } catch (error) {
+    console.error('Failed to notify hue change', error);
+  }
 }
