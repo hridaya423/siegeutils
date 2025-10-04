@@ -8,6 +8,10 @@
     "storage",
     "https://siege.hackclub.com/*"
   ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Siege Utils"
+  },
   "background": {
     "scripts": ["background.js"]
   },
@@ -18,6 +22,7 @@
       "css": ["styles.css"]
     }
   ],
+  "web_accessible_resources": ["catppuccin.css"],
   "icons": {
     "64": "icon64.png",
     "128": "icon128.png"

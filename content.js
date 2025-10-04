@@ -2990,5 +2990,106 @@ ${legendMarkup}
   }
 }
 
+function applyTheme(theme, disableHues = false, customColors = {}, customHue = {}) {
+  const existingThemeLink = document.getElementById('siege-utils-theme');
+  const existingCustomStyle = document.getElementById('siege-utils-custom');
+  const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
+  if (theme === 'catppuccin' || theme === 'custom') {
+    if (!existingThemeLink) {
+      const link = document.createElement('link');
+      link.id = 'siege-utils-theme';
+      link.rel = 'stylesheet';
+      link.href = chrome.runtime.getURL('catppuccin.css');
+      document.head.appendChild(link);
+    }
 
+    if (theme === 'custom') {
+      applyCustomColors(customColors);
+      applyCustomHue(customHue);
+    } else {
+      if (existingCustomStyle) existingCustomStyle.remove();
+      if (existingHueStyle) existingHueStyle.remove();
+    }
+
+    toggleHues(disableHues);
+  } else {
+    if (existingThemeLink) existingThemeLink.remove();
+    if (existingCustomStyle) existingCustomStyle.remove();
+    if (existingHueStyle) existingHueStyle.remove();
+    document.body.classList.remove('no-hues');
+  }
+}
+
+function applyCustomColors(colors) {
+  let style = document.getElementById('siege-utils-custom');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'siege-utils-custom';
+    document.head.appendChild(style);
+  }
+
+  const cssVars = Object.entries(colors).map(([key, value]) =>
+    `--ctp-${key}: ${value};`
+  ).join('\n  ');
+
+  style.textContent = `:root {\n  ${cssVars}\n}`;
+}
+
+function applyCustomHue(hue) {
+  let style = document.getElementById('siege-utils-custom-hue');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'siege-utils-custom-hue';
+    document.head.appendChild(style);
+  }
+
+  const hueRotate = hue.hueRotate || 180;
+  const saturate = hue.saturate || 120;
+  const brightness = hue.brightness || 110;
+
+  const filterValue = `sepia(0.5) contrast(1.15) opacity(0.95) hue-rotate(${hueRotate}deg) saturate(${saturate / 100}) brightness(${brightness / 100})`;
+
+  style.textContent = `
+    svg:not(.icon-sm):not(.icon-xs):not([class*="icon"]):not([alt*="eeple"]):not([src*="meeple"]) {
+      filter: ${filterValue} !important;
+    }
+    .home-wave {
+      filter: ${filterValue} !important;
+    }
+    img.siege-logo {
+      filter: ${filterValue} !important;
+    }
+    canvas:not([id*="chart"]):not([class*="chart"]) {
+      filter: ${filterValue} !important;
+    }
+  `;
+}
+
+function toggleHues(disable) {
+  if (disable) {
+    document.body.classList.add('no-hues');
+  } else {
+    document.body.classList.remove('no-hues');
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'THEME_CHANGE') {
+    applyTheme(message.theme, message.disableHues, message.customColors, message.customHue);
+  } else if (message.type === 'TOGGLE_HUES') {
+    toggleHues(message.disableHues);
+  } else if (message.type === 'UPDATE_CUSTOM_COLORS') {
+    applyCustomColors(message.customColors);
+  } else if (message.type === 'UPDATE_CUSTOM_HUE') {
+    applyCustomHue(message.customHue);
+  }
+});
+
+chrome.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'], (result) => {
+  const theme = result.theme || 'classic';
+  const disableHues = result.disableHues || false;
+  const customColors = result.customColors || {};
+  const customHue = result.customHue || {};
+  applyTheme(theme, disableHues, customColors, customHue);
+});
