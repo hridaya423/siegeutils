@@ -1203,16 +1203,26 @@ const components = {
     }
 
     const options = initialNode.options;
+    const selectedOption = selectedDevice ? options.find(o => o.id === selectedDevice) : null;
+
     return `
       <div class="siege-device-selector">
-        <select class="siege-device-dropdown" id="deviceSelector">
-          <option value="">Choose your device...</option>
-          ${options.map(option => `
-            <option value="${option.id}" ${selectedDevice === option.id ? 'selected' : ''}>
-              ${option.title}
-            </option>
-          `).join('')}
-        </select>
+        <div class="siege-custom-dropdown" id="deviceSelector">
+          <div class="siege-dropdown-selected" data-value="${selectedDevice || ''}">
+            ${selectedOption ? selectedOption.title : 'Choose your device...'}
+            <svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="siege-dropdown-options">
+            <div class="siege-dropdown-option" data-value="">Choose your device...</div>
+            ${options.map(option => `
+              <div class="siege-dropdown-option ${selectedDevice === option.id ? 'selected' : ''}" data-value="${option.id}">
+                ${option.title}
+              </div>
+            `).join('')}
+          </div>
+        </div>
       </div>
     `;
   },
@@ -1437,8 +1447,35 @@ const handlers = {
   },
 
   async handleDeviceChange(event) {
-    selectedDevice = event.target.value;
-    await render();
+    if (event.target.classList.contains('siege-dropdown-option')) {
+      const dropdown = event.target.closest('.siege-custom-dropdown');
+      const selectedEl = dropdown.querySelector('.siege-dropdown-selected');
+      const optionsEl = dropdown.querySelector('.siege-dropdown-options');
+
+      selectedDevice = event.target.dataset.value;
+      selectedEl.innerHTML = event.target.textContent + `
+        <svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      `;
+      selectedEl.dataset.value = selectedDevice;
+
+      optionsEl.classList.remove('show');
+      dropdown.classList.remove('open');
+
+      await render();
+    } else if (event.target.classList.contains('siege-dropdown-selected') || event.target.closest('.siege-dropdown-selected')) {
+      const dropdown = event.target.closest('.siege-custom-dropdown') || event.target.parentElement.closest('.siege-custom-dropdown');
+      if (dropdown) {
+        dropdown.classList.toggle('open');
+        dropdown.querySelector('.siege-dropdown-options').classList.toggle('show');
+      }
+    } else if (!event.target.closest('.siege-custom-dropdown')) {
+      document.querySelectorAll('.siege-custom-dropdown.open').forEach(dropdown => {
+        dropdown.classList.remove('open');
+        dropdown.querySelector('.siege-dropdown-options').classList.remove('show');
+      });
+    }
   },
 
   async handleItemClick(event) {
@@ -1572,7 +1609,7 @@ async function render() {
   container.innerHTML = interfaceHTML;
 
   container.addEventListener('click', handlers.handleCategoryChange);
-  container.addEventListener('change', handlers.handleDeviceChange);
+  container.addEventListener('click', handlers.handleDeviceChange);
   container.addEventListener('click', handlers.handleItemClick);
   container.addEventListener('click', handlers.handleGoalButtonClick);
   container.addEventListener('click', handlers.handleProgressTabClick);

@@ -123,14 +123,92 @@ body, html {
 .siege-device-selector {
   margin-bottom: 2rem;
   text-align: center;
+  display: flex;
+  justify-content: center;
 }
 
-.siege-device-dropdown {
-  padding: 0.75rem 1rem;
-  min-width: 300px;
-  background: rgba(246, 236, 206, 0.8);
-  border: 2px solid rgba(120, 84, 55, 0.3);
-  border-radius: 0.5rem;
+.siege-custom-dropdown {
+  position: relative;
+  min-width: 320px;
+  user-select: none;
+}
+
+.siege-dropdown-selected {
+  padding: 0.75rem 1rem 0.75rem 1.25rem;
+  background: rgba(246, 236, 206, 0.95);
+  border: 2px solid rgba(120, 84, 55, 0.4);
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #3b2a1a;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(64, 43, 32, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.siege-dropdown-selected:hover {
+  border-color: rgba(120, 84, 55, 0.6);
+  box-shadow: 0 4px 12px rgba(64, 43, 32, 0.15);
+  transform: translateY(-1px);
+}
+
+.siege-dropdown-selected svg {
+  transition: transform 0.2s ease;
+  color: #3b2a1a;
+}
+
+.siege-custom-dropdown.open .siege-dropdown-selected svg {
+  transform: rotate(180deg);
+}
+
+.siege-dropdown-options {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  right: 0;
+  background: rgba(246, 236, 206, 0.98);
+  border: 2px solid rgba(120, 84, 55, 0.4);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(64, 43, 32, 0.2);
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.siege-dropdown-options.show {
+  max-height: 300px;
+  overflow-y: auto;
+  opacity: 1;
+}
+
+.siege-dropdown-option {
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  font-size: 0.95rem;
+}
+
+.siege-dropdown-option:hover {
+  background: rgba(120, 84, 55, 0.15);
+}
+
+.siege-dropdown-option.selected {
+  background: rgba(120, 84, 55, 0.2);
+  font-weight: 600;
+}
+
+.siege-dropdown-option:first-child {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.siege-dropdown-option:last-child {
+  border-radius: 0 0 0.5rem 0.5rem;
 }
 
 .siege-items-grid {
