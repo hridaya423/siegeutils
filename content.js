@@ -2436,7 +2436,7 @@ ${legendMarkup}
 
     const plannerHTML = `
       <details data-siege-hours-planner="true" style="
-        margin: 0.75rem 0 0.75rem 0;
+        margin: 0.75rem 0 0.75rem 2rem;
         padding: 0;
         background: rgba(255, 255, 255, 0.08);
         border: 2px solid rgba(64, 43, 32, 0.65);
@@ -2663,6 +2663,7 @@ ${legendMarkup}
     countdownContainer.style.background = 'rgba(255, 255, 255, 0.2)';
     countdownContainer.style.borderRadius = '8px';
     countdownContainer.style.border = '1px solid rgba(0, 0, 0, 0.05)';
+    countdownContainer.style.marginLeft = '2rem'
     countdownContainer.innerHTML = `
         Next week in: <span id="time-till-next-week" style="font-weight: 700; color: #1f2937;"></span>
     `;
