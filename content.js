@@ -585,11 +585,17 @@ const projectStats = {
     return sum / efficiencies.length;
   },
 
-  createProjectProjections(projectId, unshippedHours) {
+  createProjectProjections(projectId, unshippedHours, week) {
     if (unshippedHours <= 0) return '';
 
-    const avgEfficiency = this.getAverageEfficiency();
-    const projectedCoins = Math.round(unshippedHours * avgEfficiency);
+    let efficiency;
+    if (week >= 5) {
+      efficiency = goals.getWeek5PlusEfficiency();
+    } else {
+      efficiency = this.getAverageEfficiency();
+    }
+
+    const projectedCoins = Math.round(unshippedHours * efficiency);
 
     return `
       <div class="siege-projections" style="
@@ -604,7 +610,7 @@ const projectStats = {
           <div>Unshipped time: <strong>${utils.formatHours(unshippedHours)}</strong></div>
           <div>Projected earnings: <strong>~${projectedCoins} 🪙</strong></div>
           <div style="opacity: 0.7; margin-top: 0.25rem;">
-            Based on ${avgEfficiency.toFixed(1)} 🪙/hour average efficiency
+            Based on ${efficiency.toFixed(1)} 🪙/hour ${week >= 5 ? 'week 5+ efficiency' : 'average efficiency'}
           </div>
         </div>
       </div>
@@ -916,7 +922,16 @@ const goals = {
         if (!hasShippedData) {
           const latest = tracking.snapshots[tracking.snapshots.length - 1];
           const hours = latest.hours;
-          const projectedCoins = Math.round(hours * avgEfficiency);
+          const projectWeek = latest.week || currentWeek;
+
+          let efficiency;
+          if (projectWeek >= 5) {
+            efficiency = week5PlusEfficiency;
+          } else {
+            efficiency = avgEfficiency;
+          }
+
+          const projectedCoins = Math.round(hours * efficiency);
 
           totalUnshippedTime += hours;
           totalUnshippedCoins += projectedCoins;
@@ -1758,7 +1773,7 @@ async function enhanceProjectPage() {
     let projectionsHTML = '';
     if (isCurrentWeek && isUnshipped) {
       const unshippedHours = projectStats.getUnshippedTime(projectId);
-      projectionsHTML = projectStats.createProjectProjections(projectId, unshippedHours);
+      projectionsHTML = projectStats.createProjectProjections(projectId, unshippedHours, week);
     }
 
     const reviewerFeedback = document.querySelector('.reviewer-feedback-indicator') ||
