@@ -67,7 +67,7 @@ jobs:
         [ -f popup.js ] && cp popup.js temp-chrome-extension/
         [ -f popup.css ] && cp popup.css temp-chrome-extension/
         [ -f popup.html ] && cp popup.html temp-chrome-extension/
-        [ -f catppuccin.css ] && cp catpuccin.css temp-chrome-extension/
+        [ -f catppuccin.css ] && cp catppuccin.css temp-chrome-extension/
 
         # Create Chrome ZIP
         cd temp-chrome-extension
@@ -97,7 +97,7 @@ jobs:
         [ -f popup.js ] && cp popup.js temp-firefox-extension/
         [ -f popup.css ] && cp popup.css temp-firefox-extension/
         [ -f popup.html ] && cp popup.html temp-firefox-extension/
-        [ -f catppuccin.css ] && cp catpuccin.css temp-firefox-extension/
+        [ -f catppuccin.css ] && cp catppuccin.css temp-firefox-extension/
 
         # Create Firefox ZIP
         cd temp-firefox-extension
