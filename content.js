@@ -186,20 +186,32 @@ const projectStats = {
   estimateReviewerAndVoterStats(totalCoins, week, hours) {
     if (!totalCoins || !hours) return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
 
+    const stats = this.getStoredStats();
+
     let baseMultiplier;
     if (week <= 4) {
       baseMultiplier = 2;
     } else {
+      const prepWeekProjects = Object.values(stats).filter(p => p.week <= 4);
+      const prepWeekBaseRate = 2.0;
+
+      let prepWeekEfficiency = prepWeekBaseRate;
+      if (prepWeekProjects.length > 0) {
+        prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+      }
+
+      const week5First10Rate = prepWeekEfficiency * 0.25;
+      const week5After10Rate = prepWeekEfficiency * 0.5;
+
       if (hours <= 10) {
-        baseMultiplier = 0.5;
+        baseMultiplier = week5First10Rate / prepWeekBaseRate;
       } else {
-        baseMultiplier = (0.5 * 10 + 1 * (hours - 10)) / hours;
+        const totalCoinsBase = (10 * week5First10Rate) + ((hours - 10) * week5After10Rate);
+        baseMultiplier = (totalCoinsBase / hours) / prepWeekBaseRate;
       }
     }
 
     const target = totalCoins / (baseMultiplier * hours);
-
-    const stats = this.getStoredStats();
     const pastProjects = Object.values(stats).filter(p => p.week === week);
     let historicalRbAvg = 1.5;
     let historicalStarsAvg = 3.0;
@@ -331,10 +343,15 @@ const projectStats = {
   },
 
   createEfficiencyBadge(projectData) {
-    const { coinsPerHour, reviewerBonus, avgScore, totalCoins, hours } = projectData;
+    const { coinsPerHour, reviewerBonus, avgScore, totalCoins, hours, week } = projectData;
 
     if (totalCoins === 0) {
-      const avgEfficiency = this.getAverageEfficiency();
+      let avgEfficiency;
+      if (week >= 5) {
+        avgEfficiency = goals.getWeek5PlusEfficiency();
+      } else {
+        avgEfficiency = this.getAverageEfficiency();
+      }
       const projectedCoins = Math.round(hours * avgEfficiency);
 
       const stats = this.getStoredStats();
@@ -759,6 +776,11 @@ const goals = {
     const shippedStats = projectStats.getStoredStats();
     const week5PlusProjects = Object.values(shippedStats).filter(project => project.week >= 5);
 
+    const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
+    const prepWeekEfficiency = prepWeekProjects.length > 0
+      ? prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length
+      : 2.0;
+
     if (week5PlusProjects.length > 0) {
       const totalWeek5PlusCoins = week5PlusProjects.reduce((sum, p) => sum + p.total_coins, 0);
       const totalWeek5PlusHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0);
@@ -767,26 +789,21 @@ const goals = {
       return actualWeek5PlusEfficiency;
     }
 
-    const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
-
-    const avgPrepHours = prepWeekProjects.reduce((sum, p) => sum + p.hours, 0) / prepWeekProjects.length;
+    const avgPrepHours = prepWeekProjects.length > 0
+      ? prepWeekProjects.reduce((sum, p) => sum + p.hours, 0) / prepWeekProjects.length
+      : 10;
     const predictedWeeklyHours = Math.max(avgPrepHours, 10);
 
-    let baseCoinsPerHour;
+    let totalCoins;
     if (predictedWeeklyHours <= 10) {
-      baseCoinsPerHour = 0.5;
+      totalCoins = predictedWeeklyHours * (prepWeekEfficiency * 0.25);
     } else {
-      const additionalHours = predictedWeeklyHours - 10;
-      const totalCoinsFromBase = (10 * 0.5) + (additionalHours * 1.0);
-      baseCoinsPerHour = totalCoinsFromBase / predictedWeeklyHours;
+      const first10Coins = 10 * (prepWeekEfficiency * 0.25);
+      const remainingCoins = (predictedWeeklyHours - 10) * (prepWeekEfficiency * 0.5);
+      totalCoins = first10Coins + remainingCoins;
     }
 
-    const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
-    const prepWeekBaseRate = 2.0;
-    const multiplierFromBonuses = prepWeekEfficiency / prepWeekBaseRate;
-
-    const predictedEfficiency = baseCoinsPerHour * multiplierFromBonuses;
-    return predictedEfficiency;
+    return totalCoins / predictedWeeklyHours;
   },
 
   estimateTimeForItem(itemPrice, currentCoins) {
