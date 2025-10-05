@@ -1,3 +1,22 @@
+const isFirefox = typeof browser !== 'undefined' && typeof browser.runtime !== 'undefined';
+const browserAPI = isFirefox ? browser : {
+  runtime: {
+    sendMessage: (message, callback) => {
+      chrome.runtime.sendMessage(message, callback);
+    },
+    getURL: (path) => chrome.runtime.getURL(path),
+    get lastError() {
+      return chrome.runtime.lastError;
+    },
+    onMessage: chrome.runtime.onMessage
+  },
+  storage: {
+    sync: {
+      get: (keys, callback) => chrome.storage.sync.get(keys, callback)
+    }
+  }
+};
+
 let isActive = false;
 let techTreeData = null;
 let userCoins = 0;
@@ -102,11 +121,11 @@ const shopUtils = {
   async extractShopItemsFromPage() {
     return new Promise((resolve) => {
       try {
-        chrome.runtime.sendMessage(
+        browserAPI.runtime.sendMessage(
           { action: 'extractShopItems' },
           (response) => {
-            if (chrome.runtime.lastError) {
-              console.error('[Siege Utils] Message passing error:', chrome.runtime.lastError);
+            if (browserAPI.runtime.lastError) {
+              console.error('[Siege Utils] Message passing error:', browserAPI.runtime.lastError);
               resolve(null);
               return;
             }
@@ -3159,7 +3178,7 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
       const link = document.createElement('link');
       link.id = 'siege-utils-theme';
       link.rel = 'stylesheet';
-      link.href = chrome.runtime.getURL('catppuccin.css');
+      link.href = browserAPI.runtime.getURL('catppuccin.css');
       document.head.appendChild(link);
     }
 
@@ -3233,7 +3252,7 @@ function toggleHues(disable) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'THEME_CHANGE') {
     applyTheme(message.theme, message.disableHues, message.customColors, message.customHue);
   } else if (message.type === 'TOGGLE_HUES') {
@@ -3245,7 +3264,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-chrome.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'], (result) => {
+browserAPI.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'], (result) => {
   const theme = result.theme || 'classic';
   const disableHues = result.disableHues || false;
   const customColors = result.customColors || {};

@@ -1,14 +1,14 @@
-
-const browserAPI = typeof browser !== 'undefined' ? browser : {
+const isFirefox = typeof browser !== 'undefined' && typeof browser.runtime !== 'undefined';
+const browserAPI = isFirefox ? browser : {
   storage: {
     sync: {
       get: (keys) => new Promise(resolve => chrome.storage.sync.get(keys, resolve)),
-      set: (items) => new Promise(resolve => chrome.storage.sync.set(items, resolve))
+      set: (items) => new Promise(resolve => chrome.storage.sync.set(items, () => resolve()))
     }
   },
   tabs: {
     query: (queryInfo) => new Promise(resolve => chrome.tabs.query(queryInfo, resolve)),
-    reload: (tabId) => new Promise(resolve => chrome.tabs.reload(tabId, resolve)),
+    reload: (tabId) => new Promise(resolve => chrome.tabs.reload(tabId, () => resolve())),
     sendMessage: (tabId, message) => new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(tabId, message, (response) => {
         const error = chrome.runtime?.lastError;

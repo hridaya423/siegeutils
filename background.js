@@ -145,29 +145,53 @@ function parseJSObject(jsString) {
   return parseValue();
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+const isFirefox = typeof browser !== 'undefined' && typeof browser.runtime !== 'undefined';
+const browserAPI = isFirefox ? browser : chrome;
+
+browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'extractShopItems') {
-    chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id },
-      world: 'MAIN',
-      func: () => {
+    const executeScriptCode = `
+      (function() {
         const scripts = Array.from(document.querySelectorAll('script'));
         for (const script of scripts) {
           const content = script.textContent || script.innerText;
           if (content && content.includes('allShopItems')) {
-            const match = content.match(/const\s+allShopItems\s*=\s*(\{[\s\S]*?\n\s*\});/);
+            const match = content.match(/const\\s+allShopItems\\s*=\\s*(\\{[\\s\\S]*?\\n\\s*\\});/);
             if (match && match[1]) {
               return match[1];
             }
           }
         }
         return null;
-      }
-    }).then(results => {
-      if (results && results[0] && results[0].result) {
-        try {
-          const shopItemsStr = results[0].result;
+      })();
+    `;
 
+    const executeScript = isFirefox
+      ? browserAPI.tabs.executeScript(sender.tab.id, { code: executeScriptCode })
+      : browserAPI.scripting.executeScript({
+          target: { tabId: sender.tab.id },
+          world: 'MAIN',
+          func: () => {
+            const scripts = Array.from(document.querySelectorAll('script'));
+            for (const script of scripts) {
+              const content = script.textContent || script.innerText;
+              if (content && content.includes('allShopItems')) {
+                const match = content.match(/const\s+allShopItems\s*=\s*(\{[\s\S]*?\n\s*\});/);
+                if (match && match[1]) {
+                  return match[1];
+                }
+              }
+            }
+            return null;
+          }
+        });
+
+    executeScript.then(results => {
+      const result = isFirefox ? results[0] : (results && results[0] && results[0].result);
+
+      if (result) {
+        try {
+          const shopItemsStr = result;
           const shopItems = parseJSObject(shopItemsStr);
 
           console.log('Successfully parsed shop items:', Object.keys(shopItems));

@@ -8,6 +8,12 @@
     "storage",
     "https://siege.hackclub.com/*"
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hridayahoney@gmail.com",
+      "strict_min_version": "57.0"
+    }
+  },
   "browser_action": {
     "default_popup": "popup.html",
     "default_title": "Siege Utils"
