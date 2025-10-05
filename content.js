@@ -819,12 +819,17 @@ const goals = {
       : 10;
     const predictedWeeklyHours = Math.max(avgPrepHours, 10);
 
+    const reviewerBonus = 1.5;
+    const avgVoterStars = 3;
+    const voterMultiplier = avgVoterStars / 5;
+    const baseRateMultiplier = reviewerBonus * voterMultiplier;
+
     let totalCoins;
     if (predictedWeeklyHours <= 10) {
-      totalCoins = predictedWeeklyHours * (prepWeekEfficiency * 0.25);
+      totalCoins = predictedWeeklyHours * (prepWeekEfficiency * 0.25 * baseRateMultiplier);
     } else {
-      const first10Coins = 10 * (prepWeekEfficiency * 0.25);
-      const remainingCoins = (predictedWeeklyHours - 10) * (prepWeekEfficiency * 0.5);
+      const first10Coins = 10 * (prepWeekEfficiency * 0.25 * baseRateMultiplier);
+      const remainingCoins = (predictedWeeklyHours - 10) * (prepWeekEfficiency * 0.5 * baseRateMultiplier);
       totalCoins = first10Coins + remainingCoins;
     }
 
