@@ -214,13 +214,17 @@ const projectStats = {
       const prepWeekProjects = Object.values(stats).filter(p => p.week <= 4);
       const prepWeekBaseRate = 2.0;
 
-      let prepWeekEfficiency = prepWeekBaseRate;
+      let week5First10Rate, week5After10Rate;
       if (prepWeekProjects.length > 0) {
-        prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+        const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+        week5First10Rate = prepWeekEfficiency * 0.25;
+        week5After10Rate = prepWeekEfficiency * 0.5;
+      } else {
+        const reviewerBonus = 1.5;
+        const avgVoterStars = 2.5;
+        week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
+        week5After10Rate = 1.0 * reviewerBonus * avgVoterStars;
       }
-
-      const week5First10Rate = prepWeekEfficiency * 0.25;
-      const week5After10Rate = prepWeekEfficiency * 0.5;
 
       if (hours <= 10) {
         baseMultiplier = week5First10Rate / prepWeekBaseRate;
@@ -802,9 +806,6 @@ const goals = {
     const week5PlusProjects = Object.values(shippedStats).filter(project => project.week >= 5);
 
     const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
-    const prepWeekEfficiency = prepWeekProjects.length > 0
-      ? prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length
-      : 2.0;
 
     if (week5PlusProjects.length > 0) {
       const totalWeek5PlusCoins = week5PlusProjects.reduce((sum, p) => sum + p.total_coins, 0);
@@ -819,17 +820,24 @@ const goals = {
       : 10;
     const predictedWeeklyHours = Math.max(avgPrepHours, 10);
 
-    const reviewerBonus = 1.5;
-    const avgVoterStars = 3;
-    const voterMultiplier = avgVoterStars / 5;
-    const baseRateMultiplier = reviewerBonus * voterMultiplier;
+    let week5First10Rate, week5After10Rate;
+    if (prepWeekProjects.length > 0) {
+      const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+      week5First10Rate = prepWeekEfficiency * 0.25;
+      week5After10Rate = prepWeekEfficiency * 0.5;
+    } else {
+      const reviewerBonus = 1.5;
+      const avgVoterStars = 2.5;
+      week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
+      week5After10Rate = 1.0 * reviewerBonus * avgVoterStars;
+    }
 
     let totalCoins;
     if (predictedWeeklyHours <= 10) {
-      totalCoins = predictedWeeklyHours * (prepWeekEfficiency * 0.25 * baseRateMultiplier);
+      totalCoins = predictedWeeklyHours * week5First10Rate;
     } else {
-      const first10Coins = 10 * (prepWeekEfficiency * 0.25 * baseRateMultiplier);
-      const remainingCoins = (predictedWeeklyHours - 10) * (prepWeekEfficiency * 0.5 * baseRateMultiplier);
+      const first10Coins = 10 * week5First10Rate;
+      const remainingCoins = (predictedWeeklyHours - 10) * week5After10Rate;
       totalCoins = first10Coins + remainingCoins;
     }
 
