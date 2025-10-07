@@ -2978,11 +2978,15 @@ ${legendMarkup}
     const currentPath = window.location.pathname;
 
     const navLinks = [
-      { path: '/keep', label: 'Keep' },
-      { path: '/great-hall', label: 'Great Hall' },
-      { path: '/armory', label: 'Armory' },
-      { path: '/market', label: 'Market' }
+      { path: '/keep', label: 'Keep', admin: false },
+      { path: '/great-hall', label: 'Great Hall', admin: false },
+      { path: '/armory', label: 'Armory', admin: false },
+      { path: '/market', label: 'Market', admin: false }
     ];
+
+    for (let navbarElement of document.getElementsByClassName('navbar-link--admin')) {
+      navLinks.push({ path: navbarElement.getAttribute("href"), label: navbarElement.textContent.trim(), admin: true });
+    }
 
     const backButton = navbarNav.querySelector('a[href="/castle"]');
     navbarNav.innerHTML = '';
@@ -2992,11 +2996,17 @@ ${legendMarkup}
       if (isActive) {
         const span = document.createElement('span');
         span.className = 'navbar-link active';
+        if (link.admin) {
+          span.classList.add('navbar-link--admin');
+        }
         span.textContent = link.label;
         navbarNav.appendChild(span);
       } else {
         const a = document.createElement('a');
         a.className = 'navbar-link';
+        if (link.admin) {
+          a.classList.add('navbar-link--admin');
+        }
         a.href = link.path;
         a.textContent = link.label;
         navbarNav.appendChild(a);
