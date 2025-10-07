@@ -558,6 +558,10 @@ aside a:hover {
   background: var(--ctp-surface1) !important;
 }
 
+.leaderboard-count {
+  background: var(--ctp-overlay0) !important;
+}
+
 div[style*="background-color: rgb"],
 div[style*="background: rgb"] {
   background: transparent !important;
@@ -822,4 +826,8 @@ body.no-hues img[src$=".webp"][src*="castle"],
 body.no-hues canvas {
   filter: none !important;
   opacity: 1 !important;
+}
+
+.project-status {
+  background: var(--ctp-overlay2) !important;
 }
