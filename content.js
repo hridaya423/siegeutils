@@ -218,12 +218,12 @@ const projectStats = {
       if (prepWeekProjects.length > 0) {
         const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
         week5First10Rate = prepWeekEfficiency * 0.25;
-        week5After10Rate = prepWeekEfficiency * 0.5;
+        week5After10Rate = prepWeekEfficiency;
       } else {
-        const reviewerBonus = 1.5;
-        const avgVoterStars = 2.5;
+        const reviewerBonus = 2.0;
+        const avgVoterStars = 3.0;
         week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
-        week5After10Rate = 1.0 * reviewerBonus * avgVoterStars;
+        week5After10Rate = 2.0 * reviewerBonus * avgVoterStars;
       }
 
       if (hours <= 10) {
@@ -411,7 +411,7 @@ const projectStats = {
               ~${avgVoterStars.toFixed(1)}/5 ⭐ avg voter stars
             </div>
             <div style="font-size: 0.8rem; font-weight: 500; opacity: 0.6; margin-top: 0.25rem;">
-              🚧 Unshipped - projections based on your past efficiency
+              Projections based on your past efficiency
             </div>
           </div>
         </div>
@@ -779,12 +779,7 @@ const goals = {
 
   getTotalCost() {
     const goals = this.getStoredGoals();
-    return goals.reduce((total, goal) => {
-      if (!utils.isPurchased(goal.title)) {
-        return total + goal.price;
-      }
-      return total;
-    }, 0);
+    return goals.reduce((total, goal) => total + goal.price, 0);
   },
 
   getProgress() {
@@ -808,11 +803,51 @@ const goals = {
     const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
 
     if (week5PlusProjects.length > 0) {
+      const projectsUnder10h = week5PlusProjects.filter(p => p.hours <= 10);
+      const projectsOver10h = week5PlusProjects.filter(p => p.hours > 10);
+
+      let week5First10Rate, week5After10Rate;
+
+      if (projectsUnder10h.length > 0) {
+        const totalCoins = projectsUnder10h.reduce((sum, p) => sum + p.total_coins, 0);
+        const totalHours = projectsUnder10h.reduce((sum, p) => sum + p.hours, 0);
+        week5First10Rate = totalCoins / totalHours;
+      } else if (prepWeekProjects.length > 0) {
+        const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
+        week5First10Rate = prepWeekEfficiency * 0.25;
+      } else {
+        const reviewerBonus = 2.0;
+        const avgVoterStars = 3.0;
+        week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
+      }
+
+      if (projectsOver10h.length > 0 && week5First10Rate) {
+        let totalAfter10Coins = 0;
+        let totalAfter10Hours = 0;
+        projectsOver10h.forEach(p => {
+          const first10Coins = 10 * week5First10Rate;
+          const after10Coins = p.total_coins - first10Coins;
+          const after10Hours = p.hours - 10;
+          totalAfter10Coins += after10Coins;
+          totalAfter10Hours += after10Hours;
+        });
+        week5After10Rate = totalAfter10Hours > 0 ? totalAfter10Coins / totalAfter10Hours : week5First10Rate;
+      }
+
+      if (week5First10Rate && week5After10Rate) {
+        const avgHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0) / week5PlusProjects.length;
+        if (avgHours <= 10) {
+          return week5First10Rate;
+        } else {
+          const first10Coins = 10 * week5First10Rate;
+          const after10Coins = (avgHours - 10) * week5After10Rate;
+          return (first10Coins + after10Coins) / avgHours;
+        }
+      }
+
       const totalWeek5PlusCoins = week5PlusProjects.reduce((sum, p) => sum + p.total_coins, 0);
       const totalWeek5PlusHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0);
-      const actualWeek5PlusEfficiency = totalWeek5PlusHours > 0 ? totalWeek5PlusCoins / totalWeek5PlusHours : 0;
-
-      return actualWeek5PlusEfficiency;
+      return totalWeek5PlusHours > 0 ? totalWeek5PlusCoins / totalWeek5PlusHours : 0;
     }
 
     const avgPrepHours = prepWeekProjects.length > 0
@@ -824,12 +859,12 @@ const goals = {
     if (prepWeekProjects.length > 0) {
       const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
       week5First10Rate = prepWeekEfficiency * 0.25;
-      week5After10Rate = prepWeekEfficiency * 0.5;
+      week5After10Rate = prepWeekEfficiency;
     } else {
-      const reviewerBonus = 1.5;
-      const avgVoterStars = 2.5;
+      const reviewerBonus = 2.0;
+      const avgVoterStars = 3.0;
       week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
-      week5After10Rate = 1.0 * reviewerBonus * avgVoterStars;
+      week5After10Rate = 2.0 * reviewerBonus * avgVoterStars;
     }
 
     let totalCoins;
@@ -1120,9 +1155,6 @@ const goals = {
   createGoalButton(item) {
     const goals = this.getStoredGoals();
     const hasGoal = goals.find(g => g.title === item.title);
-    const isPurchased = utils.isPurchased(item.title);
-
-    if (isPurchased) return '';
 
     const buttonText = hasGoal ? 'Remove Goal' : 'Add Goal';
     const buttonClass = hasGoal ? 'siege-goal-button-remove' : 'siege-goal-button-add';
@@ -1267,15 +1299,16 @@ const components = {
     let statusClass = 'unaffordable';
     let statusText = 'Cannot afford';
 
-    if (purchased) {
-      statusClass = 'purchased';
-      statusText = 'Purchased';
-    } else if (affordable) {
+    if (affordable) {
       statusClass = 'affordable';
       statusText = 'Can afford';
     }
 
-    const cardClass = `siege-item-card ${!affordable && !purchased ? 'disabled' : ''}`;
+    if (purchased) {
+      statusText += ' (Owned)';
+    }
+
+    const cardClass = `siege-item-card ${!affordable ? 'disabled' : ''}`;
 
     const estimate = goals.estimateTimeForItem(item.price, currentCoins);
     const timeEstimate = `
@@ -1516,11 +1549,6 @@ const handlers = {
 
     try {
       const itemData = JSON.parse(decodeURIComponent(card.dataset.item));
-
-      if (utils.isPurchased(itemData.title)) {
-        components.showToast('Item already purchased!');
-        return;
-      }
 
       if (!utils.canAfford(itemData.price)) {
         components.showToast('Not enough coins!');
@@ -2971,69 +2999,6 @@ ${legendMarkup}
     } 
   }
 
-  function enhanceNavbar() {
-    const navbarNav = document.querySelector('.navbar-nav');
-    if (!navbarNav || navbarNav.dataset.siegeEnhanced) return;
-
-    const currentPath = window.location.pathname;
-
-    const navLinks = [
-      { path: '/keep', label: 'Keep' },
-      { path: '/great-hall', label: 'Great Hall' },
-      { path: '/armory', label: 'Armory' },
-      { path: '/market', label: 'Market' }
-    ];
-
-    const backButton = navbarNav.querySelector('a[href="/castle"]');
-    navbarNav.innerHTML = '';
-
-    navLinks.forEach(link => {
-      const isActive = currentPath === link.path || currentPath.startsWith(link.path + '/');
-      if (isActive) {
-        const span = document.createElement('span');
-        span.className = 'navbar-link active';
-        span.textContent = link.label;
-        navbarNav.appendChild(span);
-      } else {
-        const a = document.createElement('a');
-        a.className = 'navbar-link';
-        a.href = link.path;
-        a.textContent = link.label;
-        navbarNav.appendChild(a);
-      }
-    });
-
-    if (backButton) {
-      navbarNav.appendChild(backButton);
-    }
-
-    const navbarHeader = document.querySelector('.navbar-header');
-    if (navbarHeader && !navbarHeader.querySelector('.navbar-coins')) {
-      const currentCoins = utils.getCurrentCoins();
-      if (currentCoins > 0) {
-        const userMeta = navbarHeader.querySelector('.user-meta');
-
-        if (userMeta) {
-          userMeta.style.display = 'flex';
-          userMeta.style.alignItems = 'center';
-          userMeta.style.gap = '0.5rem';
-
-          const coinsDisplay = document.createElement('div');
-          coinsDisplay.className = 'navbar-coins';
-          coinsDisplay.innerHTML = `${currentCoins} 🪙`;
-          userMeta.appendChild(coinsDisplay);
-        } else {
-          const coinsDisplay = document.createElement('div');
-          coinsDisplay.className = 'navbar-coins';
-          coinsDisplay.innerHTML = `${currentCoins} 🪙`;
-          navbarHeader.appendChild(coinsDisplay);
-        }
-      }
-    }
-
-    navbarNav.dataset.siegeEnhanced = 'true';
-  }
-
   function addCastleTooltips() {
     if (window.location.pathname !== '/castle') return;
     if (document.querySelector('.siege-castle-tooltip')) return;
@@ -3119,7 +3084,6 @@ ${legendMarkup}
 
         initProjectStats();
         initKeepEnhancements();
-        enhanceNavbar();
         navigationTimeout = null;
       }, 300);
     }
@@ -3163,7 +3127,6 @@ ${legendMarkup}
       }
       initProjectStats();
       initKeepEnhancements();
-      enhanceNavbar();
     });
   } else {
     if (window.location.pathname.startsWith('/market')) {
@@ -3177,7 +3140,6 @@ ${legendMarkup}
     }
     initProjectStats();
     initKeepEnhancements();
-    enhanceNavbar();
   }
 }
 
@@ -3186,7 +3148,7 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
   const existingCustomStyle = document.getElementById('siege-utils-custom');
   const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
-  if (theme === 'catppuccin' || theme === 'custom') {
+  if (theme === 'catppuccin' || theme === 'custom') { 
     if (!existingThemeLink) {
       const link = document.createElement('link');
       link.id = 'siege-utils-theme';
