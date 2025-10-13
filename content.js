@@ -3254,6 +3254,8 @@ function initSimpleVotingInterface() {
 
   function extractVotingData() {
     const scripts = document.querySelectorAll('script');
+    let votesData = null;
+    let ballotId = null;
 
     for (const script of scripts) {
       const content = script.textContent;
@@ -3263,22 +3265,76 @@ function initSimpleVotingInterface() {
         const votesMatch = content.match(/(?:const votes|votingManager\.votes)\s*=\s*(\[[\s\S]*?\]);/);
         if (votesMatch) {
           try {
-            const votesData = JSON.parse(votesMatch[1]);
-            return votesData;
+            votesData = JSON.parse(votesMatch[1]);
+
+            if (votesData && votesData.length > 0) {
+              if (votesData[0].ballot_id) {
+                ballotId = votesData[0].ballot_id;
+              } else if (votesData[0].ballotId) {
+                ballotId = votesData[0].ballotId;
+              } else {
+                console.warn('[Siege Utils] No ballot_id field found in vote. Available keys:', Object.keys(votesData[0]));
+              }
+            }
           } catch (e) {
             console.error('[Siege Utils] Failed to parse votes data:', e);
+          }
+        }
+
+        if (!ballotId) {
+          const patterns = [
+            /const\s+currentBallotId\s*=\s*(\d+)/,
+            /(?:const\s+ballotId|votingManager\.ballotId)\s*=\s*(\d+)/, 
+            /ballot_id\s*=\s*['"]*(\d+)['"]*[;,]/
+          ];
+
+          for (const pattern of patterns) {
+            const match = content.match(pattern);
+            if (match) {
+              ballotId = parseInt(match[1]);
+              break;
+            }
           }
         }
       }
     }
 
-    return null;
+    if (!ballotId && votesData) {
+      const urlPatterns = [
+        /\/great-hall\/voting\/(\d+)/,
+        /\/great-hall\/(\d+)/,
+        /\/ballots\/(\d+)/,
+        /ballot[_-]?(\d+)/
+      ];
+
+      for (const pattern of urlPatterns) {
+        const urlMatch = window.location.pathname.match(pattern);
+        if (urlMatch) {
+          ballotId = parseInt(urlMatch[1]);
+          break;
+        }
+      }
+    }
+
+    if (!ballotId && votesData) {
+      const ballotElement = document.querySelector('[data-ballot-id]');
+      if (ballotElement) {
+        ballotId = parseInt(ballotElement.dataset.ballotId);
+      }
+    }
+
+    return { votes: votesData, ballotId };
   }
 
-  let votesData = extractVotingData();
+  let { votes: votesData, ballotId } = extractVotingData();
 
   if (votesData) {
-    createVotingInterface(votesData, null);
+    if (!votesData || votesData.length === 0) {
+      showVotingFinishedMessage();
+      return;
+    }
+
+    createVotingInterface(votesData, ballotId);
   } else {
     let attempts = 0;
     const checkInterval = setInterval(() => {
@@ -3286,16 +3342,85 @@ function initSimpleVotingInterface() {
 
       if (attempts > 30) {
         clearInterval(checkInterval);
+        showVotingFinishedMessage();
         return;
       }
 
-      votesData = extractVotingData();
+      const result = extractVotingData();
+      votesData = result.votes;
+      ballotId = result.ballotId;
+
       if (votesData) {
         clearInterval(checkInterval);
-        createVotingInterface(votesData, null);
+
+        if (!votesData || votesData.length === 0) {
+          showVotingFinishedMessage();
+          return;
+        }
+
+        createVotingInterface(votesData, ballotId);
       }
     }, 200);
   }
+}
+
+function showVotingFinishedMessage() {
+
+  const canvas = document.getElementById('voting-canvas');
+  if (canvas) {
+    canvas.style.display = 'none';
+  }
+
+  const uiOverlay = document.querySelector('.ui-overlay');
+  if (uiOverlay) {
+    uiOverlay.style.display = 'none';
+  }
+
+  const appMain = document.querySelector('.app-main');
+  if (!appMain) {
+    return;
+  }
+
+  appMain.innerHTML = '';
+
+  const messageContainer = document.createElement('div');
+  messageContainer.style.cssText = `
+    padding: 2rem;
+    padding-left: 22rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  messageContainer.innerHTML = `
+    <div style="
+      background: #f5f5f4 url('/assets/parchment-texture-e4dc566e.jpg') repeat;
+      border: 3px solid rgba(64, 43, 32, 0.75);
+      border-radius: 8px;
+      padding: 3rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      text-align: center;
+      max-width: 600px;
+    ">
+      <h1 style="
+        font-size: 2.5rem;
+        color: #3b2a1a;
+        margin: 0 0 1rem 0;
+        font-family: 'Jaini', 'IM Fell English', serif;
+      ">You finished voting</h1>
+      <p style="
+        font-size: 1.25rem;
+        color: #6b5437;
+        margin: 0;
+        line-height: 1.6;
+      ">Voting for this week has concluded. Check back next week to vote on new projects!</p>
+    </div>
+  `;
+
+  appMain.appendChild(messageContainer);
 }
 
 function createVotingInterface(votes, ballotId) {
