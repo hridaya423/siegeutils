@@ -22,7 +22,8 @@
     {
       "matches": ["https://siege.hackclub.com/*"],
       "js": ["chart.umd.js", "content.js"],
-      "css": ["styles.css"]
+      "css": ["styles.css"],
+      "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [

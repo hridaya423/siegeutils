@@ -3246,3 +3246,301 @@ browserAPI.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'
   const customHue = result.customHue || {};
   applyTheme(theme, disableHues, customColors, customHue);
 });
+
+function initSimpleVotingInterface() {
+  if (!window.location.pathname.includes('great-hall')) {
+    return;
+  }
+
+  function extractVotingData() {
+    const scripts = document.querySelectorAll('script');
+
+    for (const script of scripts) {
+      const content = script.textContent;
+
+      if (content && (content.includes('const votes =') || content.includes('votingManager.votes ='))) {
+
+        const votesMatch = content.match(/(?:const votes|votingManager\.votes)\s*=\s*(\[[\s\S]*?\]);/);
+        if (votesMatch) {
+          try {
+            const votesData = JSON.parse(votesMatch[1]);
+            return votesData;
+          } catch (e) {
+            console.error('[Siege Utils] Failed to parse votes data:', e);
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  let votesData = extractVotingData();
+
+  if (votesData) {
+    createVotingInterface(votesData, null);
+  } else {
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+
+      if (attempts > 30) {
+        clearInterval(checkInterval);
+        return;
+      }
+
+      votesData = extractVotingData();
+      if (votesData) {
+        clearInterval(checkInterval);
+        createVotingInterface(votesData, null);
+      }
+    }, 200);
+  }
+}
+
+function createVotingInterface(votes, ballotId) {
+
+    const canvas = document.getElementById('voting-canvas');
+    if (canvas) {
+      canvas.style.display = 'none';
+    }
+
+    const uiOverlay = document.querySelector('.ui-overlay');
+    if (uiOverlay) {
+      uiOverlay.style.display = 'none';
+    }
+    const appMain = document.querySelector('.app-main');
+    if (!appMain) {
+      return;
+    }
+
+    appMain.innerHTML = '';
+
+    const votingContainer = document.createElement('div');
+    votingContainer.id = 'siege-simple-voting';
+    votingContainer.style.cssText = `
+      padding: 2rem;
+      padding-left: 22rem;
+      max-width: 1800px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 10000;
+      min-height: 100vh;
+      display: block !important;
+      visibility: visible !important;
+    `;
+
+    const starAllocations = {};
+    votes.forEach(vote => {
+      starAllocations[vote.id] = vote.star_count || 1;
+    });
+
+    let totalStars = Object.values(starAllocations).reduce((sum, stars) => sum + stars, 0);
+
+    votingContainer.innerHTML = `
+      <div class="siege-voting-header">
+        <h1>Vote on Week ${votes[0]?.week || ''} Projects</h1>
+        <div class="siege-voting-stars-total">
+          Total Stars: <span id="siege-total-stars">${totalStars}</span> / 12
+        </div>
+      </div>
+
+      <div class="siege-voting-layout">
+        <div class="siege-projects-list" id="siege-projects-list"></div>
+
+        <div class="siege-reasoning-panel">
+          <h3 class="siege-reasoning-title">Your Reasoning</h3>
+          <textarea
+            class="siege-reasoning-textarea"
+            id="siege-reasoning"
+            placeholder="Share your thoughts on the projects and why you voted the way you did..."
+          ></textarea>
+          <button class="siege-submit-btn" id="siege-submit-vote" disabled>
+            Submit Votes
+          </button>
+          <div class="siege-error-msg" id="siege-error-msg"></div>
+        </div>
+      </div>
+    `;
+
+    appMain.appendChild(votingContainer);
+
+    const projectsList = document.getElementById('siege-projects-list');
+    votes.forEach(vote => {
+      if (!vote.project) return;
+
+      const projectCard = document.createElement('div');
+      projectCard.className = 'siege-project-card';
+      projectCard.innerHTML = `
+        <div class="siege-project-header">
+          <div>
+            <h2 class="siege-project-title">${vote.project.name}</h2>
+            <p class="siege-project-author">by ${vote.project.user?.name || 'Unknown'}</p>
+          </div>
+        </div>
+
+        <p class="siege-project-description">${vote.project.description || ''}</p>
+
+        <div class="siege-project-links">
+          ${vote.project.repo_url ? `<a href="${vote.project.repo_url}" target="_blank" class="siege-project-link">View Code</a>` : ''}
+          ${vote.project.demo_url ? `<a href="${vote.project.demo_url}" target="_blank" class="siege-project-link">Play Project</a>` : ''}
+        </div>
+
+        <div class="siege-star-control">
+          <span class="siege-star-label">Stars:</span>
+          <button class="siege-star-btn" data-vote-id="${vote.id}" data-action="decrease">−</button>
+          <div class="siege-star-display" id="stars-${vote.id}"></div>
+          <button class="siege-star-btn" data-vote-id="${vote.id}" data-action="increase">+</button>
+        </div>
+      `;
+
+      projectsList.appendChild(projectCard);
+
+      renderStars(vote.id, starAllocations[vote.id]);
+    });
+
+    function renderStars(voteId, count) {
+      const starDisplay = document.getElementById(`stars-${voteId}`);
+      if (!starDisplay) return;
+
+      starDisplay.innerHTML = '';
+      for (let i = 0; i < 5; i++) {
+        const star = document.createElement('span');
+        star.className = `siege-star-icon ${i < count ? '' : 'empty'}`;
+        star.textContent = '★';
+        starDisplay.appendChild(star);
+      }
+    }
+
+    function updateButtons() {
+      document.querySelectorAll('.siege-star-btn').forEach(btn => {
+        const voteId = parseInt(btn.dataset.voteId);
+        const action = btn.dataset.action;
+        const currentStars = starAllocations[voteId];
+
+        if (action === 'decrease') {
+          btn.disabled = currentStars <= 1;
+        } else if (action === 'increase') {
+          btn.disabled = currentStars >= 5 || totalStars >= 12;
+        }
+      });
+
+      document.getElementById('siege-total-stars').textContent = totalStars;
+
+      const reasoning = document.getElementById('siege-reasoning').value.trim();
+      const submitBtn = document.getElementById('siege-submit-vote');
+      submitBtn.disabled = totalStars !== 12 || !reasoning;
+
+      const errorMsg = document.getElementById('siege-error-msg');
+      if (totalStars !== 12) {
+        errorMsg.textContent = `You must allocate exactly 12 stars (currently ${totalStars})`;
+      } else if (!reasoning) {
+        errorMsg.textContent = 'Please provide reasoning for your votes';
+      } else {
+        errorMsg.textContent = '';
+      }
+    }
+
+    projectsList.addEventListener('click', async (e) => {
+      if (!e.target.classList.contains('siege-star-btn')) return;
+
+      const voteId = parseInt(e.target.dataset.voteId);
+      const action = e.target.dataset.action;
+      const currentStars = starAllocations[voteId];
+
+      let newStars = currentStars;
+      if (action === 'decrease' && currentStars > 1) {
+        newStars = currentStars - 1;
+        totalStars--;
+      } else if (action === 'increase' && currentStars < 5 && totalStars < 12) {
+        newStars = currentStars + 1;
+        totalStars++;
+      }
+
+      if (newStars !== currentStars) {
+        starAllocations[voteId] = newStars;
+        renderStars(voteId, newStars);
+        updateButtons();
+
+        try {
+          const response = await fetch(`/votes/${voteId}/update_stars`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ star_count: newStars })
+          });
+
+          if (!response.ok) {
+            console.error('Failed to update stars');
+            if (action === 'decrease') {
+              starAllocations[voteId]++;
+              totalStars++;
+            } else {
+              starAllocations[voteId]--;
+              totalStars--;
+            }
+            renderStars(voteId, starAllocations[voteId]);
+            updateButtons();
+          }
+        } catch (error) {
+          console.error('Error updating stars:', error);
+        }
+      }
+    });
+
+    document.getElementById('siege-reasoning').addEventListener('input', updateButtons);
+
+    document.getElementById('siege-submit-vote').addEventListener('click', async () => {
+      const reasoning = document.getElementById('siege-reasoning').value.trim();
+      const submitBtn = document.getElementById('siege-submit-vote');
+
+      if (totalStars !== 12 || !reasoning) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting...';
+
+      try {
+        if (!ballotId) {
+          console.error('[Siege Utils] Could not find ballot ID');
+          alert('Error: Could not find ballot ID');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit Votes';
+          return;
+        }
+
+        const response = await fetch(`/ballots/${ballotId}/submit`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+          },
+          body: JSON.stringify({ reasoning: reasoning })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          window.location.href = data.redirect_url || '/great-hall';
+        } else {
+          alert('Error submitting ballot: ' + (data.errors || 'Unknown error'));
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit Votes';
+        }
+      } catch (error) {
+        console.error('Error submitting ballot:', error);
+        alert('Error submitting ballot. Please try again.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Votes';
+      }
+    });
+
+    updateButtons();
+  }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initSimpleVotingInterface);
+} else {
+  initSimpleVotingInterface();
+}
