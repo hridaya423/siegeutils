@@ -1,0 +1,820 @@
+:root {
+  --signal-base: #0a1929;
+  --signal-mantle: #121f33;
+  --signal-crust: #08111d;
+  --signal-surface0: #1a2332;
+  --signal-surface1: #2a3647;
+  --signal-surface2: #3a4757;
+  --signal-overlay0: #4a5767;
+  --signal-overlay1: #5a6777;
+  --signal-overlay2: #6a7787;
+  --signal-text: #ffffff;
+  --signal-subtext1: #e3f2ff;
+  --signal-subtext0: #cce6ff;
+  --signal-blue: #2090ea;
+  --signal-sapphire: #3a9ef5;
+  --signal-sky: #5ca7ff;
+  --signal-teal: #00b8d4;
+  --signal-green: #00d984;
+  --signal-yellow: #ffab00;
+  --signal-peach: #ff9e44;
+  --signal-red: #ff6b6b;
+  --signal-pink: #ff8fa3;
+  --signal-mauve: #c792ea;
+}
+
+body {
+  background: var(--signal-base) !important;
+  color: var(--signal-text) !important;
+}
+
+.navbar,
+nav {
+  background: var(--signal-mantle) !important;
+  border-color: var(--signal-surface0) !important;
+}
+
+.navbar .navbar-header,
+.navbar-brand,
+.nav-link,
+.navbar-text {
+  color: var(--signal-text) !important;
+}
+
+.navbar a:hover {
+  color: var(--signal-blue) !important;
+}
+
+.navbar-coins {
+  background: rgba(32, 144, 234, 0.15) !important;
+  border: 1.5px solid rgba(32, 144, 234, 0.3) !important;
+  color: var(--signal-blue) !important;
+}
+
+.card,
+.panel,
+.box,
+[class*="card"],
+[class*="panel"] {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--signal-text) !important;
+}
+
+a {
+  color: var(--signal-blue) !important;
+}
+
+a:hover {
+  color: var(--signal-sapphire) !important;
+}
+
+button,
+.btn,
+[type="button"],
+[type="submit"] {
+  background: var(--signal-blue) !important;
+  color: var(--signal-base) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+button:hover,
+.btn:hover {
+  background: var(--signal-sapphire) !important;
+  border-color: var(--signal-sapphire) !important;
+}
+
+button.secondary,
+.btn-secondary {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface2) !important;
+}
+
+button.secondary:hover,
+.btn-secondary:hover {
+  background: var(--signal-surface2) !important;
+}
+
+input,
+textarea,
+select {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--signal-blue) !important;
+  outline-color: var(--signal-blue) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--signal-subtext0) !important;
+}
+
+table {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+}
+
+thead,
+th {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface2) !important;
+}
+
+tbody tr {
+  border-color: var(--signal-surface1) !important;
+}
+
+tbody tr:hover {
+  background: var(--signal-surface1) !important;
+}
+
+td {
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.planner-container,
+.hours-planner {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.planner-cell,
+.hour-cell {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+}
+
+.planner-cell.filled,
+.hour-cell.filled {
+  background: var(--signal-blue) !important;
+}
+
+.planner-cell:hover,
+.hour-cell:hover {
+  background: var(--signal-surface1) !important;
+}
+
+.shop-item,
+.item-card {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.shop-item:hover,
+.item-card:hover {
+  background: var(--signal-surface1) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+.item-price,
+.price {
+  color: var(--signal-yellow) !important;
+}
+
+.modal,
+.overlay,
+.dialog {
+  background: var(--signal-base) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.modal-backdrop,
+.overlay-backdrop {
+  background: rgba(8, 17, 29, 0.8) !important;
+}
+
+.modal-header,
+.dialog-header {
+  background: var(--signal-mantle) !important;
+  border-color: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+}
+
+.modal-content,
+.dialog-content {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+}
+
+.badge,
+.label,
+.tag {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface2) !important;
+}
+
+.badge.primary,
+.badge.success,
+.label.success {
+  background: var(--signal-green) !important;
+  color: var(--signal-base) !important;
+}
+
+.badge.warning,
+.label.warning {
+  background: var(--signal-yellow) !important;
+  color: var(--signal-base) !important;
+}
+
+.badge.error,
+.badge.danger,
+.label.danger {
+  background: var(--signal-red) !important;
+  color: var(--signal-base) !important;
+}
+
+.badge.info,
+.label.info {
+  background: var(--signal-blue) !important;
+  color: var(--signal-base) !important;
+}
+
+.alert,
+.notification {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.alert.success {
+  background: rgba(0, 217, 132, 0.15) !important;
+  border-color: var(--signal-green) !important;
+  color: var(--signal-green) !important;
+}
+
+.alert.warning {
+  background: rgba(255, 171, 0, 0.15) !important;
+  border-color: var(--signal-yellow) !important;
+  color: var(--signal-yellow) !important;
+}
+
+.alert.error,
+.alert.danger {
+  background: rgba(255, 107, 107, 0.15) !important;
+  border-color: var(--signal-red) !important;
+  color: var(--signal-red) !important;
+}
+
+.alert.info {
+  background: rgba(32, 144, 234, 0.15) !important;
+  border-color: var(--signal-blue) !important;
+  color: var(--signal-blue) !important;
+}
+
+.progress,
+.progress-bar {
+  background: var(--signal-surface1) !important;
+}
+
+.progress-bar-fill,
+.progress .bar,
+.progress > div,
+.progress-bar > div,
+[role="progressbar"] {
+  background: var(--signal-green) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+[class*="progress"] [class*="fill"],
+[class*="progress"] [class*="bar"]:not(.progress-bar),
+[class*="progress"] > div,
+div[style*="width"][style*="%"] {
+  background: var(--signal-green) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.progress div[style*="background"],
+.progress-bar div[style*="background"],
+[class*="progress"] div[style*="background"],
+.siege-goals-progress div[style*="linear-gradient"] {
+  background: var(--signal-green) !important;
+}
+
+.siege-goals-progress {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.siege-progress-tab {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface2) !important;
+}
+
+.siege-progress-tab.active {
+  background: var(--signal-blue) !important;
+  color: var(--signal-base) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+hr {
+  border-color: var(--signal-surface1) !important;
+}
+
+code,
+pre {
+  background: var(--signal-mantle) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+::-webkit-scrollbar {
+  background: var(--signal-base) !important;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--signal-base) !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--signal-surface1) !important;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--signal-surface2) !important;
+}
+
+::selection {
+  background: var(--signal-blue) !important;
+  color: var(--signal-base) !important;
+}
+
+.user-meta,
+.user-name {
+  color: var(--signal-text) !important;
+}
+
+.session-item,
+.project-card {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.session-item:hover,
+.project-card:hover {
+  background: var(--signal-surface1) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+.stat,
+.metric {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+}
+
+.stat-value,
+.metric-value {
+  color: var(--signal-blue) !important;
+}
+
+.stat-label,
+.metric-label {
+  color: var(--signal-subtext1) !important;
+}
+
+footer {
+  background: var(--signal-mantle) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface0) !important;
+}
+
+.dropdown-menu,
+.select-dropdown {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.dropdown-item,
+.select-option {
+  color: var(--signal-text) !important;
+}
+
+.dropdown-item:hover,
+.select-option:hover {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-blue) !important;
+}
+
+.tooltip,
+[data-tooltip] {
+  background: var(--signal-surface2) !important;
+  color: var(--signal-text) !important;
+}
+
+p, span, div, label, li, ul, ol {
+  color: var(--signal-text) !important;
+}
+
+[style*="color: rgb(120, 84, 55)"],
+[style*="color: rgb(120, 84, 43)"],
+[style*="color: rgb(64, 43, 32)"],
+[style*="color: #78542b"],
+[style*="color: #402b20"],
+[style*="color: #3b2a1a"] {
+  color: var(--signal-text) !important;
+}
+
+input[type="checkbox"] {
+  background: transparent !important;
+  border: 2px solid var(--signal-surface1) !important;
+  appearance: none;
+  width: 1.2em;
+  height: 1.2em;
+  border-radius: 0.25em;
+  cursor: pointer;
+}
+
+input[type="checkbox"]:checked {
+  background: var(--signal-blue) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: var(--signal-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9em;
+}
+
+li {
+  background: transparent !important;
+}
+
+ul, ol {
+  background: transparent !important;
+}
+
+[style*="background: rgba(246, 236, 206"],
+[style*="background: rgba(120, 84, 55"],
+[style*="background: rgba(64, 43, 32"],
+[style*="background-color: rgba(246, 236, 206"],
+[style*="background-color: rgba(120, 84, 55"],
+[style*="background-color: rgba(64, 43, 32"] {
+  background: transparent !important;
+}
+
+svg:not(.icon-sm):not(.icon-xs):not([class*="icon"]) {
+  filter: brightness(0.9) sepia(0.3) hue-rotate(180deg) saturate(1.5) !important;
+}
+
+.home-wave,
+svg.home-wave {
+  filter: brightness(0.9) sepia(0.3) hue-rotate(180deg) saturate(1.5) !important;
+}
+
+img[src*="avatar"],
+img[src*="icon"],
+img[src*="profile"],
+img[src*="pfp"],
+img[src*="meeple"],
+img[alt*="meeple"],
+.avatar img,
+.icon img,
+.user-avatar img,
+.navbar img,
+#userMarker img,
+#home-meeple-container-2 img,
+[id*="meeple"] img {
+  filter: none !important;
+}
+
+img.siege-logo,
+img[alt*="Siege Logo"],
+img[src*="logo-"] {
+  filter: brightness(0.9) sepia(0.4) hue-rotate(180deg) saturate(2) !important;
+}
+
+img[src*="castle"],
+img[alt*="castle"],
+img[alt*="great"],
+img[alt*="hall"],
+img[src*="great_hall"],
+img[src*="b5c6eaa2"] {
+  filter: brightness(0.8) contrast(0.9) sepia(0.4) hue-rotate(180deg) saturate(2.5) !important;
+  opacity: 0.9 !important;
+}
+
+img[src$=".webp"][src*="hall"],
+img[src$=".webp"][src*="castle"] {
+  filter: brightness(0.8) contrast(0.9) sepia(0.4) hue-rotate(180deg) saturate(2.5) !important;
+  opacity: 0.9 !important;
+}
+
+.navbar a,
+nav a,
+aside a {
+  color: var(--signal-blue) !important;
+  text-decoration: none !important;
+}
+
+.navbar a:hover,
+nav a:hover,
+aside a:hover {
+  color: var(--signal-sapphire) !important;
+}
+
+.progress-text,
+.percentage,
+.week-info,
+.next-week,
+.coffers-info {
+  color: var(--signal-text) !important;
+}
+
+.leaderboard {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+}
+
+.leaderboard-item {
+  background: transparent !important;
+  border-bottom: 1px solid var(--signal-surface1) !important;
+}
+
+.leaderboard-item:hover {
+  background: var(--signal-surface1) !important;
+}
+
+div[style*="background-color: rgb"],
+div[style*="background: rgb"] {
+  background: transparent !important;
+}
+
+.container *,
+.main-content *,
+.content * {
+  color: var(--signal-text) !important;
+}
+
+strong, b {
+  color: var(--signal-text) !important;
+}
+
+.text-container,
+.info-box,
+.stats-box {
+  background: transparent !important;
+}
+
+main,
+section,
+article,
+.main-content,
+.content-wrapper,
+.page-content,
+.section-wrapper,
+.stats-wrapper,
+.efficiency-wrapper,
+.week-wrapper {
+  background: transparent !important;
+}
+
+div:not(.navbar):not(.dropdown-menu):not(.planner-cell):not(.hour-cell):not(.shop-item):not(.badge):not(.alert):not(.modal):not(.panel):not(.navbar-coins):not([class*="project-"]):not(.device-selector):not(.custom-dropdown):not([style*="linear-gradient"]) {
+  background: transparent !important;
+}
+
+div.main-content,
+div.content-wrapper,
+div.page-content,
+div.section-wrapper {
+  background: transparent !important;
+}
+
+select,
+.device-selector,
+.custom-dropdown,
+select.form-control {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+  border: 2px solid var(--signal-surface1) !important;
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+}
+
+select:hover,
+.device-selector:hover,
+.custom-dropdown:hover {
+  border-color: var(--signal-blue) !important;
+}
+
+select option,
+.dropdown-option {
+  background: var(--signal-surface0) !important;
+  color: var(--signal-text) !important;
+}
+
+.leaderboard {
+  background: transparent !important;
+  border: none !important;
+}
+
+.chart-container,
+.efficiency-chart {
+  background: transparent !important;
+}
+
+canvas {
+  background: transparent !important;
+  filter: brightness(0.8) contrast(0.9) sepia(0.4) hue-rotate(180deg) saturate(2.5) !important;
+  opacity: 0.9 !important;
+}
+
+.chart-container canvas,
+.efficiency-chart canvas,
+canvas[id*="chart"] {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.project-card,
+article.project-card {
+  background: var(--signal-surface0) !important;
+  border: 1px solid var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  position: relative !important;
+}
+
+.project-card-overlay {
+  z-index: 1 !important;
+}
+
+.project-card > *:not(.project-card-overlay) {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+.project-card *:not(svg):not(path):not(polyline):not(circle),
+article.project-card *:not(svg):not(path):not(polyline):not(circle) {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.project-card h1,
+.project-card h2,
+.project-card h3,
+.project-card p,
+.project-card span:not(.project-link span),
+.project-card time,
+article.project-card h1,
+article.project-card h2,
+article.project-card h3,
+article.project-card p,
+article.project-card span:not(.project-link span),
+article.project-card time {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.project-card:hover,
+article.project-card:hover {
+  background: var(--signal-surface1) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+.project-header {
+  display: flex !important;
+  color: var(--signal-text) !important;
+  background: transparent !important;
+}
+
+.project-title {
+  color: var(--signal-text) !important;
+}
+
+.project-description {
+  color: var(--signal-text) !important;
+}
+
+.project-footer {
+  color: var(--signal-text) !important;
+  background: transparent !important;
+}
+
+.project-time {
+  color: var(--signal-text) !important;
+}
+
+.project-updated,
+.project-updated time {
+  color: var(--signal-subtext1) !important;
+}
+
+.project-badge {
+  background: transparent !important;
+  color: var(--signal-blue) !important;
+  border: 1px solid var(--signal-blue) !important;
+}
+
+.project-links {
+  display: flex !important;
+  gap: 0.5rem !important;
+  background: transparent !important;
+}
+
+.project-link {
+  color: var(--signal-blue) !important;
+  background: transparent !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  border: 1px solid var(--signal-surface1) !important;
+  padding: 0.5rem !important;
+  border-radius: 0.375rem !important;
+}
+
+.project-link:hover {
+  color: var(--signal-sapphire) !important;
+  background: var(--signal-surface1) !important;
+  border-color: var(--signal-blue) !important;
+}
+
+.project-link span {
+  color: inherit !important;
+}
+
+.project-tags {
+  display: flex !important;
+  gap: 0.5rem !important;
+  background: transparent !important;
+}
+
+.project-tag {
+  background: var(--signal-surface1) !important;
+  color: var(--signal-text) !important;
+  border-color: var(--signal-surface2) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  padding: 0.25rem 0.5rem !important;
+  border-radius: 0.25rem !important;
+}
+
+.project-status-indicator {
+  color: var(--signal-subtext1) !important;
+  display: block !important;
+}
+
+.siege-efficiency-box {
+  background: transparent !important;
+  border-color: var(--signal-blue) !important;
+}
+
+.siege-efficiency-box div[style*="color: #3b82f6"],
+.siege-efficiency-box div[style*="color: rgb(59, 130, 246)"] {
+  color: var(--signal-blue) !important;
+}
+
+.siege-efficiency-box div {
+  color: var(--signal-text) !important;
+}
+
+[style*="color: #3b82f6"],
+[style*="color: rgb(59, 130, 246)"] {
+  color: var(--signal-blue) !important;
+}
+
+.project-card svg,
+.project-link svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+body.no-hues svg:not(.icon-sm):not(.icon-xs):not([class*="icon"]),
+body.no-hues .home-wave,
+body.no-hues svg.home-wave,
+body.no-hues img.siege-logo,
+body.no-hues img[alt*="Siege Logo"],
+body.no-hues img[src*="logo-"],
+body.no-hues img[src*="castle"],
+body.no-hues img[alt*="castle"],
+body.no-hues img[alt*="great"],
+body.no-hues img[alt*="hall"],
+body.no-hues img[src*="great_hall"],
+body.no-hues img[src*="b5c6eaa2"],
+body.no-hues img[src$=".webp"][src*="hall"],
+body.no-hues img[src$=".webp"][src*="castle"],
+body.no-hues canvas {
+  filter: none !important;
+  opacity: 1 !important;
+}

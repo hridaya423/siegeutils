@@ -21,6 +21,11 @@ body[data-theme="catppuccin"] {
   color: #cdd6f4;
 }
 
+body[data-theme="signal"] {
+  background: linear-gradient(135deg, #0a1929 0%, #121f33 100%);
+  color: #ffffff;
+}
+
 .popup-container {
   padding: 1.5rem;
 }
@@ -37,6 +42,10 @@ body[data-theme="classic"] .popup-title {
 
 body[data-theme="catppuccin"] .popup-title {
   color: #89b4fa;
+}
+
+body[data-theme="signal"] .popup-title {
+  color: #2090ea;
 }
 
 .popup-subtitle {
@@ -85,6 +94,17 @@ body[data-theme="catppuccin"] .theme-card:hover {
   transform: translateY(-2px);
 }
 
+body[data-theme="signal"] .theme-card {
+  background: #1a2332;
+  border: 2px solid #2a3647;
+}
+
+body[data-theme="signal"] .theme-card:hover {
+  background: #2a3647;
+  border-color: #2090ea;
+  transform: translateY(-2px);
+}
+
 .theme-card input[type="radio"] {
   appearance: none;
   width: 20px;
@@ -101,6 +121,10 @@ body[data-theme="classic"] .theme-card input[type="radio"] {
 
 body[data-theme="catppuccin"] .theme-card input[type="radio"] {
   border: 2px solid #89b4fa;
+}
+
+body[data-theme="signal"] .theme-card input[type="radio"] {
+  border: 2px solid #2090ea;
 }
 
 .theme-card input[type="radio"]:checked::before {
@@ -120,6 +144,10 @@ body[data-theme="classic"] .theme-card input[type="radio"]:checked::before {
 
 body[data-theme="catppuccin"] .theme-card input[type="radio"]:checked::before {
   background: #89b4fa;
+}
+
+body[data-theme="signal"] .theme-card input[type="radio"]:checked::before {
+  background: #2090ea;
 }
 
 .theme-preview {
@@ -166,6 +194,11 @@ body[data-theme="classic"] .theme-settings {
 body[data-theme="catppuccin"] .theme-settings {
   background: #313244;
   border: 1px solid #45475a;
+}
+
+body[data-theme="signal"] .theme-settings {
+  background: #1a2332;
+  border: 1px solid #2a3647;
 }
 
 .setting-toggle {
@@ -237,6 +270,16 @@ body[data-theme="custom"] #reset-custom:hover {
   background: #585b70;
 }
 
+body[data-theme="signal"] #reset-custom {
+  background: #2a3647;
+  color: #ffffff;
+  border-color: #3a4757;
+}
+
+body[data-theme="signal"] #reset-custom:hover {
+  background: #3a4757;
+}
+
 .popup-footer {
   padding-top: 1rem;
   border-top: 1px solid;
@@ -250,6 +293,10 @@ body[data-theme="classic"] .popup-footer {
 
 body[data-theme="catppuccin"] .popup-footer {
   border-top-color: #45475a;
+}
+
+body[data-theme="signal"] .popup-footer {
+  border-top-color: #2a3647;
 }
 
 .version {

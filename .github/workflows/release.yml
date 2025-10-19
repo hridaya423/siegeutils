@@ -68,6 +68,7 @@ jobs:
         [ -f popup.css ] && cp popup.css temp-chrome-extension/
         [ -f popup.html ] && cp popup.html temp-chrome-extension/
         [ -f catppuccin.css ] && cp catppuccin.css temp-chrome-extension/
+        [ -f signal.css ] && cp signal.css temp-chrome-extension/
 
         # Create Chrome ZIP
         cd temp-chrome-extension
@@ -98,6 +99,7 @@ jobs:
         [ -f popup.css ] && cp popup.css temp-firefox-extension/
         [ -f popup.html ] && cp popup.html temp-firefox-extension/
         [ -f catppuccin.css ] && cp catppuccin.css temp-firefox-extension/
+        [ -f signal.css ] && cp signal.css temp-firefox-extension/
 
         # Create Firefox ZIP
         cd temp-firefox-extension
@@ -143,6 +145,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Version**: v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Chrome Extension**: siege-utils-chrome-v${{ env.VERSION }}.zip" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Firefox Extension**: siege-utils-firefox-v${{ env.VERSION }}.zip" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Firefox Extension**: siege-utils-firefox-v${{ env.VERSION }}.zip" >> $GITHUBs_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🔗 **Release URL**: https://github.com/${{ github.repository }}/releases/tag/v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY

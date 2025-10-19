@@ -168,7 +168,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function applyPopupTheme(theme) {
-  document.body.setAttribute('data-theme', theme === 'custom' ? 'catppuccin' : theme);
+  const popupTheme = theme === 'custom' ? 'catppuccin' : theme;
+  document.body.setAttribute('data-theme', popupTheme);
 }
 
 async function notifyColorChange() {

@@ -4376,13 +4376,23 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
   const existingCustomStyle = document.getElementById('siege-utils-custom');
   const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
-  if (theme === 'catppuccin' || theme === 'custom') { 
+  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal') {
+
+    let cssFile = 'catppuccin.css';
+    if (theme === 'signal') {
+      cssFile = 'signal.css';
+    }
+
+    const cssUrl = browserAPI.runtime.getURL(cssFile);
+
     if (!existingThemeLink) {
       const link = document.createElement('link');
       link.id = 'siege-utils-theme';
       link.rel = 'stylesheet';
-      link.href = browserAPI.runtime.getURL('catppuccin.css');
+      link.href = cssUrl;
       document.head.appendChild(link);
+    } else if (existingThemeLink.href !== cssUrl) {
+      existingThemeLink.href = cssUrl;
     }
 
     if (theme === 'custom') {
