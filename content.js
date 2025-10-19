@@ -24,6 +24,8 @@ let userPurchases = [];
 let currentCategory = 'laptop';
 let selectedDevice = null;
 let userGoals = [];
+let isRouteCollapsed = true;  
+let currentRouteItem = null;
 
 const utils = {
   getCSRFToken() {
@@ -63,8 +65,8 @@ const utils = {
   },
 
   getCurrentCoins() {
-    const coffersTitle = document.querySelector('.home-section-title');
-    if (coffersTitle && coffersTitle.textContent.includes('Your coffers:')) {
+    const coffersTitle = this.findCoffersTitle();
+    if (coffersTitle) {
       const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
       if (coinMatch) {
         return parseInt(coinMatch[1]);
@@ -112,6 +114,19 @@ const utils = {
     const hours = Math.floor(totalHours);
     const minutes = Math.round((totalHours - hours) * 60);
     return `${hours}h ${minutes}m`;
+  },
+
+  findCoffersTitle() {
+    return Array.from(document.querySelectorAll('.home-section-title'))
+      .find(title => {
+        const text = title.textContent || '';
+        return text.trim().toLowerCase().startsWith('your coffers:');
+      }) || null;
+  },
+
+  formatNumber(value, digits = 1) {
+    if (!Number.isFinite(value)) return '0.0';
+    return value.toFixed(digits);
   }
 };
 
@@ -167,6 +182,7 @@ const projectStats = {
 
   saveStats(stats) {
     localStorage.setItem('siege-utils-project-stats', JSON.stringify(stats));
+    goals.refreshMicroGoals();
   },
 
   parseTimeString(timeStr) {
@@ -207,34 +223,18 @@ const projectStats = {
 
     const stats = this.getStoredStats();
 
-    let baseMultiplier;
+    let baseRate;
     if (week <= 4) {
-      baseMultiplier = 2;
+      baseRate = 2.0;
     } else {
-      const prepWeekProjects = Object.values(stats).filter(p => p.week <= 4);
-      const prepWeekBaseRate = 2.0;
-
-      let week5First10Rate, week5After10Rate;
-      if (prepWeekProjects.length > 0) {
-        const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
-        week5First10Rate = prepWeekEfficiency * 0.25;
-        week5After10Rate = prepWeekEfficiency;
-      } else {
-        const reviewerBonus = 2.0;
-        const avgVoterStars = 3.0;
-        week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
-        week5After10Rate = 2.0 * reviewerBonus * avgVoterStars;
-      }
-
       if (hours <= 10) {
-        baseMultiplier = week5First10Rate / prepWeekBaseRate;
+        baseRate = 0.5;
       } else {
-        const totalCoinsBase = (10 * week5First10Rate) + ((hours - 10) * week5After10Rate);
-        baseMultiplier = (totalCoinsBase / hours) / prepWeekBaseRate;
+        baseRate = (10 * 0.5 + (hours - 10) * 2.0) / hours;
       }
     }
 
-    const target = totalCoins / (baseMultiplier * hours);
+    const target = totalCoins / (baseRate * hours);
     const pastProjects = Object.values(stats).filter(p => p.week === week);
     let historicalRbAvg = 1.5;
     let historicalStarsAvg = 3.0;
@@ -252,11 +252,11 @@ const projectStats = {
         const calculatedTarget = rb * avgStars;
         const targetDeviation = Math.abs(calculatedTarget - target);
 
-        if (targetDeviation / target < 0.12) {
+        if (targetDeviation / target < 0.25) {
           const rbBias = pastProjects.length > 0 ? historicalRbAvg : 1.5;
           const starsBias = pastProjects.length > 0 ? historicalStarsAvg : 3.0;
 
-          const biasCorrection = (rb - rbBias) * 0.08 - (avgStars - starsBias) * 0.08;
+          const biasCorrection = (rb - rbBias) * 0.25 + (avgStars - starsBias) * 0.25;
           const adjustedDeviation = targetDeviation - biasCorrection;
 
           validCombinations.push({
@@ -418,7 +418,16 @@ const projectStats = {
       `;
     }
 
-    const maxEfficiency = 30;
+    let maxEfficiency;
+    if (week <= 4) {
+      maxEfficiency = 30; 
+    } else if (hours <= 10) {
+      maxEfficiency = 7.5; 
+    } else {
+      const maxFirst10 = 7.5; 
+      const maxAfter10 = 30;
+      maxEfficiency = (10 * maxFirst10 + (hours - 10) * maxAfter10) / hours;
+    }
     const percentage = Math.min((coinsPerHour / maxEfficiency) * 100, 100);
 
     let label = 'Low efficiency';
@@ -463,7 +472,18 @@ const projectStats = {
 
   createDetailedStats(projectData) {
     const { avgScore, reviewerBonus, week, hours, totalCoins, coinsPerHour } = projectData;
-    const maxEfficiency = 30;
+
+    let maxEfficiency;
+    if (week <= 4) {
+      maxEfficiency = 30;
+    } else if (hours <= 10) {
+      maxEfficiency = 7.5;
+    } else {
+      const maxFirst10 = 7.5; 
+      const maxAfter10 = 30;
+      maxEfficiency = (10 * maxFirst10 + (hours - 10) * maxAfter10) / hours;
+    }
+
     const percentage = Math.min((coinsPerHour / maxEfficiency) * 100, 100);
     const efficiencyColor = percentage >= 70 ? '#059669' : percentage >= 40 ? '#d97706' : '#dc2626';
 
@@ -498,6 +518,7 @@ const projectStats = {
 
   saveTimeTracking(data) {
     localStorage.setItem('siege-utils-unshipped', JSON.stringify(data));
+    goals.refreshMicroGoals();
   },
 
   trackProjectTime(projectId, currentHours, projectWeek = null) {
@@ -651,6 +672,204 @@ const goals = {
     localStorage.setItem('siege-utils-goals', JSON.stringify(goals));
   },
 
+  computeTimelineMeta() {
+    const msInDay = 24 * 60 * 60 * 1000;
+    const week3Start = new Date('2025-09-15');
+    const programEnd = new Date(week3Start.getTime() + (14 - 3 + 1) * 7 * msInDay);
+    const now = new Date();
+
+    const rawDaysRemaining = (programEnd.getTime() - now.getTime()) / msInDay;
+    const daysRemaining = rawDaysRemaining > 0 ? Math.ceil(rawDaysRemaining) : 0;
+    const weeksRemaining = daysRemaining > 0 ? Math.max(1, Math.ceil(daysRemaining / 7)) : 0;
+
+    const currentWeek = utils.getCurrentWeek();
+    const clampedWeek = Math.min(Math.max(currentWeek, 3), 14);
+    const weekStart = new Date(week3Start.getTime() + (clampedWeek - 3) * 7 * msInDay);
+    const nextWeekStart = new Date(weekStart.getTime() + 7 * msInDay);
+
+    let daysElapsedThisWeek = 0;
+    if (now >= weekStart) {
+      daysElapsedThisWeek = Math.min(7, Math.floor((now.getTime() - weekStart.getTime()) / msInDay) + 1);
+    }
+    if (daysElapsedThisWeek <= 0) {
+      daysElapsedThisWeek = 1;
+    }
+    const daysRemainingThisWeek = Math.max(0, 7 - daysElapsedThisWeek);
+
+    return {
+      now: now.toISOString(),
+      week3Start: week3Start.toISOString(),
+      programEnd: programEnd.toISOString(),
+      daysRemaining,
+      weeksRemaining,
+      currentWeek: clampedWeek,
+      weekStart: weekStart.toISOString(),
+      nextWeekStart: nextWeekStart.toISOString(),
+      daysElapsedThisWeek,
+      daysRemainingThisWeek
+    };
+  },
+
+  getHoursSummary() {
+    const shippedStats = projectStats.getStoredStats();
+    const timeTracking = projectStats.getStoredTimeTracking();
+    const currentWeek = utils.getCurrentWeek();
+
+    let totalHours = 0;
+    let currentWeekHours = 0;
+    let todayHours = null;
+
+    const TODAY_STORAGE_KEY = 'siege-utils-today-hours';
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    try {
+      const storedTodayData = JSON.parse(localStorage.getItem(TODAY_STORAGE_KEY));
+      if (storedTodayData && storedTodayData.date === todayKey && Number.isFinite(storedTodayData.hours)) {
+        todayHours = storedTodayData.hours;
+      }
+    } catch (error) {
+      console.warn('[Siege Utils] Failed to read stored today hours:', error);
+    }
+
+    Object.values(shippedStats).forEach(project => {
+      totalHours += project.hours || 0;
+      if (project.week === currentWeek) {
+        currentWeekHours += project.hours || 0;
+      }
+    });
+
+    Object.keys(timeTracking).forEach(projectId => {
+      const tracking = timeTracking[projectId];
+      if (!tracking || !Array.isArray(tracking.snapshots) || tracking.snapshots.length === 0) return;
+
+      const hasShippedData = Object.values(shippedStats).some(project =>
+        project.projectId === projectId || `project_${projectId}` in shippedStats
+      );
+      if (hasShippedData) return;
+
+      const weeklySnapshots = {};
+      tracking.snapshots.forEach(snapshot => {
+        if (!snapshot || typeof snapshot.week === 'undefined') return;
+        if (!weeklySnapshots[snapshot.week]) {
+          weeklySnapshots[snapshot.week] = [];
+        }
+        weeklySnapshots[snapshot.week].push(snapshot);
+      });
+
+      const weeks = Object.keys(weeklySnapshots)
+        .map(num => parseInt(num, 10))
+        .filter(Number.isFinite);
+
+      if (weeks.length === 0) return;
+
+      const latestWeek = Math.max(...weeks);
+      const latestSnapshots = weeklySnapshots[latestWeek];
+      const latestSnapshot = latestSnapshots[latestSnapshots.length - 1];
+
+      if (latestSnapshot && Number.isFinite(latestSnapshot.hours)) {
+        totalHours += latestSnapshot.hours;
+      }
+
+      if (weeklySnapshots[currentWeek]) {
+        const currentSnapshots = weeklySnapshots[currentWeek];
+        const currentSnapshot = currentSnapshots[currentSnapshots.length - 1];
+        if (currentSnapshot && Number.isFinite(currentSnapshot.hours)) {
+          currentWeekHours += currentSnapshot.hours;
+        }
+      }
+    });
+
+    if (typeof window !== 'undefined' && window.location.pathname === '/keep') {
+      const siegeCheckrow = Array.from(document.querySelectorAll('.home-checkrow'))
+        .find(el => el && typeof el.textContent === 'string' && /Siege!\s*\(/i.test(el.textContent));
+
+      if (siegeCheckrow) {
+        const siegeText = siegeCheckrow.textContent;
+        const match = siegeText.match(/(\d+h\s*\d*m?)\s*\/?\s*\d*h?/i);
+        if (match && match[1]) {
+          const timeString = match[1].trim();
+          const parsedHours = projectStats.parseTimeString(timeString);
+          if (Number.isFinite(parsedHours)) {
+            currentWeekHours = parsedHours;
+          }
+        }
+      }
+
+      const todayElement = Array.from(document.querySelectorAll('.home-progress-bottom, .home-progress-footer span, .home-progress-footer'))
+        .find(el => el && typeof el.textContent === 'string' && /today you coded/i.test(el.textContent));
+
+      if (todayElement) {
+        const timeString = todayElement.textContent.replace(/.*today you coded\s*/i, '').trim();
+        if (/\d/.test(timeString)) {
+          const parsedHours = projectStats.parseTimeString(timeString);
+          if (Number.isFinite(parsedHours)) {
+            todayHours = parsedHours;
+            try {
+              localStorage.setItem(TODAY_STORAGE_KEY, JSON.stringify({ date: todayKey, hours: parsedHours }));
+            } catch (error) {
+              console.warn('[Siege Utils] Failed to store today hours:', error);
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      totalHours,
+      currentWeekHours,
+      todayHours
+    };
+  },
+
+  buildMicroGoalSnapshot() {
+    const projectionData = this.getProjectionData();
+    if (!projectionData) return null;
+
+    const timeline = this.computeTimelineMeta();
+    const hoursSummary = this.getHoursSummary();
+
+    const remainingHours = Math.max(0, projectionData.totalHoursNeeded || 0);
+
+    const daysRemaining = Math.max(1, timeline.daysRemaining || 1);
+    const weeksRemaining = Math.max(1, timeline.weeksRemaining || 1);
+
+    const targetDaily = remainingHours > 0 ? remainingHours / daysRemaining : 0;
+    const targetWeekly = remainingHours > 0 ? remainingHours / weeksRemaining : 0;
+
+    const effectiveDaysElapsed = Math.max(1, Math.min(7, timeline.daysElapsedThisWeek || 1));
+    const weeklyActual = hoursSummary.currentWeekHours || 0;
+    let dailyActual = hoursSummary.todayHours;
+    if (!Number.isFinite(dailyActual) || dailyActual < 0) {
+      dailyActual = weeklyActual / effectiveDaysElapsed;
+    }
+
+    const weeklyPercentRaw = targetWeekly > 0 ? (weeklyActual / targetWeekly) * 100 : 0;
+    const dailyPercentRaw = targetDaily > 0 ? (dailyActual / targetDaily) * 100 : 0;
+
+    return {
+      computedAt: new Date().toISOString(),
+      remainingHours,
+      targets: {
+        daily: Number.isFinite(targetDaily) ? Number(targetDaily.toFixed(2)) : 0,
+        weekly: Number.isFinite(targetWeekly) ? Number(targetWeekly.toFixed(2)) : 0
+      },
+      timeline,
+      progress: {
+        totalHoursTracked: Number((hoursSummary.totalHours || 0).toFixed(2)),
+        weeklyActual: Number(weeklyActual.toFixed(2)),
+        dailyActual: Number(dailyActual.toFixed(2)),
+        weeklyPercent: Number.isFinite(weeklyPercentRaw) ? Number(Math.min(weeklyPercentRaw, 999).toFixed(1)) : 0,
+        dailyPercent: Number.isFinite(dailyPercentRaw) ? Number(Math.min(dailyPercentRaw, 999).toFixed(1)) : 0,
+        hoursRemainingThisWeek: Number(Math.max(0, targetWeekly - weeklyActual).toFixed(2)),
+        dailyDelta: Number((targetDaily - dailyActual).toFixed(2))
+      }
+    };
+  },
+
+  refreshMicroGoals() {
+    renderMicroGoalCard();
+  },
+
   addGoal(item, autoAdded = false) {
     const goals = this.getStoredGoals();
 
@@ -679,6 +898,7 @@ const goals = {
 
     this.saveGoals(goals);
     userGoals = goals;
+    this.refreshMicroGoals();
     return true;
   },
 
@@ -744,6 +964,7 @@ const goals = {
 
     this.saveGoals(filteredGoals);
     userGoals = filteredGoals;
+    this.refreshMicroGoals();
   },
 
   cleanupOrphanedDependencies(goals) {
@@ -1024,6 +1245,74 @@ const goals = {
     };
   },
 
+  createMicroGoalSection() {
+    const storedGoals = this.getStoredGoals();
+    if (!storedGoals || storedGoals.length === 0) {
+      return '';
+    }
+
+    const snapshot = this.buildMicroGoalSnapshot();
+
+    if (!snapshot) {
+      return `
+        <div data-siege-microgoal-inline="true" style="margin-top: 1rem; text-align: center; font-size: 0.85rem; color: rgba(59, 42, 26, 0.7);">
+          Add at least one goal to unlock micro goal planning.
+        </div>
+      `;
+    }
+
+    const formatNumber = (value, digits = 1) => {
+      if (!Number.isFinite(value)) return '0';
+      return Number(value).toFixed(digits);
+    };
+
+    const safeNumber = (value) => (Number.isFinite(value) ? value : 0);
+
+    const dailyTarget = safeNumber(snapshot.targets.daily);
+    const weeklyTarget = safeNumber(snapshot.targets.weekly);
+    const dailyActual = safeNumber(snapshot.progress.dailyActual);
+    const weeklyActual = safeNumber(snapshot.progress.weeklyActual);
+    const dailyRemaining = Math.max(0, dailyTarget - dailyActual);
+    const weeklyRemaining = Math.max(0, weeklyTarget - weeklyActual);
+
+    const tile = (label, target, actual, remaining, accent) => {
+      const remainingLabel = remaining <= 0
+        ? 'Goal met'
+        : `${formatNumber(remaining, 1)}h remaining`;
+
+      return `
+        <div style="
+          flex: 1 1 220px;
+          min-width: 200px;
+          background: rgba(255, 255, 255, 0.7);
+          border: 1px solid rgba(64, 43, 32, 0.18);
+          border-radius: 0.75rem;
+          padding: 0.85rem;
+        ">
+          <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: ${accent};">
+            ${label}
+          </div>
+          <div style="font-size: 1.05rem; font-weight: 600; color: #2f2014; margin-top: 0.4rem;">
+            Target ${formatNumber(target, 1)}h
+          </div>
+          <div style="font-size: 0.78rem; color: rgba(59, 42, 26, 0.75); margin-top: 0.4rem;">
+            Logged ${formatNumber(actual, 1)}h
+          </div>
+          <div style="font-size: 0.75rem; color: rgba(59, 42, 26, 0.75); margin-top: 0.35rem;">
+            ${remainingLabel}
+          </div>
+        </div>
+      `;
+    };
+
+    return `
+      <div data-siege-microgoal-inline="true" style="margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: 0.85rem; justify-content: center;">
+        ${tile('Daily goal', dailyTarget, dailyActual, dailyRemaining, '#059669')}
+        ${tile('Weekly goal', weeklyTarget, weeklyActual, weeklyRemaining, '#2563eb')}
+      </div>
+    `;
+  },
+
   createProgressBar() {
     const progress = this.getProgress();
     const goals = this.getStoredGoals();
@@ -1031,6 +1320,7 @@ const goals = {
     if (goals.length === 0) return '';
 
     const projectionData = this.getProjectionData();
+    const microGoalsHTML = this.createMicroGoalSection();
     return `
       <div class="siege-goals-progress" style="
         margin: 1rem 0;
@@ -1148,6 +1438,7 @@ const goals = {
             ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(projectionData.remainingAfterUnshipped)} remaining • ${utils.formatHours(projectionData.additionalHoursNeeded)} needed
           </div>
         </div>
+        ${microGoalsHTML}
       </div>
     `;
   },
@@ -1179,6 +1470,686 @@ const goals = {
   }
 };
 
+const routePlanner = {
+
+  createSidebar() {
+    const cardStateClass = isRouteCollapsed ? 'collapsed' : 'expanded';
+    const expanded = (!isRouteCollapsed).toString();
+    return `
+      <aside class="siege-route-sidebar">
+        <div class="siege-route-card ${cardStateClass}">
+          <div class="siege-route-header">
+            <h3>Upgrade Route</h3>
+            <button type="button" class="siege-route-toggle" data-route-toggle aria-expanded="${expanded}" aria-label="Toggle upgrade route">
+              <span class="siege-route-toggle-icon">${isRouteCollapsed ? '▸' : '▾'}</span>
+            </button>
+          </div>
+          <div class="siege-route-body">
+            <p class="siege-route-subtitle">Select an upgrade to map prerequisites.</p>
+            <div class="siege-route-summary" data-route-summary></div>
+            <div class="siege-route-diagram" data-route-container>
+              <div class="siege-route-placeholder">
+                Pick an upgrade from the grid to preview its route.
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    `;
+  },
+
+  normalizePrice(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/[^\d.]/g, '');
+      const parsed = parseFloat(cleaned);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  },
+
+  computeDepth(item, category, device, cache = new Map(), stack = new Set()) {
+    if (!item) return 0;
+    const key = this.getItemKey(item, category, device);
+    if (!key) return 0;
+    if (cache.has(key)) return cache.get(key);
+    if (stack.has(key)) return 0;
+
+    stack.add(key);
+    const requirements = this.getRequirementItems(item, category, device);
+    if (!requirements.length) {
+      cache.set(key, 0);
+      stack.delete(key);
+      return 0;
+    }
+
+    let maxDepth = 0;
+    requirements.forEach((req) => {
+      const depth = this.computeDepth(req, category, device, cache, stack);
+      if (depth > maxDepth) {
+        maxDepth = depth;
+      }
+    });
+
+    stack.delete(key);
+    cache.set(key, maxDepth + 1);
+    return maxDepth + 1;
+  },
+
+  findDeepestUpgrade(category, device) {
+    const branch = techTreeData?.[category]?.branches?.[device];
+    if (!branch) return null;
+
+    const items = Object.values(branch);
+    if (!items.length) return null;
+
+    const cache = new Map();
+    let best = null;
+
+    items.forEach((rawItem) => {
+      if (!rawItem.requires) return;
+      const enriched = this.enrichItemWithBranchData(rawItem, category, device);
+      if (!enriched) return;
+
+      const depth = this.computeDepth(enriched, category, device, cache);
+      const price = this.normalizePrice(enriched.price);
+
+      if (!best || depth > best.depth || (depth === best.depth && price > best.price)) {
+        best = { item: enriched, depth, price };
+      }
+    });
+
+    if (best) {
+      return best.item;
+    }
+
+    let fallback = null;
+    items.forEach((rawItem) => {
+      const enriched = this.enrichItemWithBranchData(rawItem, category, device);
+      if (!enriched) return;
+      const price = this.normalizePrice(enriched.price);
+      if (!fallback || price > fallback.price) {
+        fallback = { item: enriched, price };
+      }
+    });
+
+    return fallback ? fallback.item : null;
+  },
+
+  ensureDefaultRoute(category, device) {
+    if (!category || !device) return;
+    if (!techTreeData?.[category]?.branches?.[device]) return;
+
+    if (currentRouteItem &&
+        currentRouteItem.category === category &&
+        currentRouteItem.device === device) {
+      return;
+    }
+
+    const defaultItem = this.findDeepestUpgrade(category, device);
+    if (defaultItem) {
+      this.setCurrentRoute({ item: defaultItem, category, device });
+    }
+  },
+
+  handleContextChange(category, device) {
+    if (!currentRouteItem) {
+      return;
+    }
+
+    const existingCategory = currentRouteItem.category || currentRouteItem.item?.category;
+    const existingDevice = currentRouteItem.device || currentRouteItem.item?.device;
+
+    if (existingCategory !== category || existingDevice !== device) {
+      currentRouteItem = null;
+    }
+  },
+
+  setCurrentRoute({ item, category, device }) {
+    if (!item) {
+      return;
+    }
+
+    const effectiveCategory = category || item.category || currentCategory;
+    const effectiveDevice = device || item.device || selectedDevice;
+
+    if (!effectiveCategory || !effectiveDevice) {
+      currentRouteItem = null;
+      return;
+    }
+
+    const enrichedItem = this.enrichItemWithBranchData(item, effectiveCategory, effectiveDevice);
+    if (!enrichedItem) {
+      currentRouteItem = null;
+      return;
+    }
+
+    currentRouteItem = {
+      item: enrichedItem,
+      category: effectiveCategory,
+      device: effectiveDevice
+    };
+  },
+
+  resetRoute() {
+    currentRouteItem = null;
+  },
+
+  getItemKey(item, categoryOverride, deviceOverride) {
+    if (!item || !item.title) {
+      return null;
+    }
+    const category = item.category || categoryOverride || '';
+    const device = item.device || deviceOverride || '';
+    return `${category}::${device}::${item.title}`;
+  },
+
+  enrichItemWithBranchData(item, category, device) {
+    if (!item) {
+      return null;
+    }
+
+    const effectiveCategory = category || item.category;
+    const effectiveDevice = device || item.device;
+
+    const branch = techTreeData?.[effectiveCategory]?.branches?.[effectiveDevice];
+    if (branch) {
+      const match = Object.values(branch).find((branchItem) => branchItem.title === item.title);
+      if (match) {
+        const normalizedPrice = this.normalizePrice(match.price ?? match.cost ?? match.value);
+        return {
+          ...match,
+          price: normalizedPrice,
+          category: effectiveCategory,
+          device: effectiveDevice
+        };
+      }
+    }
+
+    const fallbackPrice = this.normalizePrice(item.price ?? item.cost ?? item.value);
+    return {
+      ...item,
+      price: fallbackPrice,
+      category: effectiveCategory,
+      device: effectiveDevice
+    };
+  },
+
+  getRequirementItems(item, category, device) {
+    if (!item || !item.requires || !techTreeData) {
+      return [];
+    }
+
+    const matches = goals.findItemsByRequirement(item.requires);
+    if (!matches || matches.length === 0) {
+      return [];
+    }
+
+    const unique = new Map();
+
+    matches.forEach((match) => {
+      const matchCategory = match.category || category;
+      const matchDevice = match.device || device;
+
+      if (category && matchCategory && matchCategory !== category) return;
+      if (device && matchDevice && matchDevice !== device) return;
+
+      const enriched = this.enrichItemWithBranchData(match, matchCategory, matchDevice);
+      const key = this.getItemKey(enriched, matchCategory, matchDevice);
+
+      if (!key || unique.has(key)) return;
+
+      unique.set(key, enriched);
+    });
+
+    return Array.from(unique.values());
+  },
+
+  getBaseDeviceOption(category, device) {
+    if (!techTreeData || !techTreeData[category]) {
+      return null;
+    }
+
+    const initialNode = techTreeData[category].initialNode;
+    if (!initialNode) {
+      return null;
+    }
+
+    const formatItem = (item) => {
+      if (!item) return null;
+      return {
+        title: item.title || item.name || '',
+        price: item.price ?? item.cost ?? item.value ?? 0,
+        description: item.description || '',
+        category,
+        device,
+        requires: '',
+        isBase: true
+      };
+    };
+
+    if (initialNode.id && initialNode.id === device) {
+      return formatItem(initialNode);
+    }
+
+    if (Array.isArray(initialNode.options)) {
+      const match = initialNode.options.find(option => option.id === device);
+      if (match) {
+        return formatItem(match);
+      }
+    }
+
+    return null;
+  },
+
+  buildGraph(context) {
+    if (!context || !context.item) {
+      return {
+        nodes: [],
+        edges: [],
+        totalCost: 0,
+        ownedCost: 0,
+        neededCost: 0,
+        targetTitle: ''
+      };
+    }
+
+    const category = context.category || context.item.category || currentCategory;
+    const device = context.device || context.item.device || selectedDevice;
+
+    if (!category || !device || !techTreeData?.[category]?.branches?.[device]) {
+      return {
+        nodes: [],
+        edges: [],
+        totalCost: 0,
+        ownedCost: 0,
+        neededCost: 0,
+        targetTitle: context.item.title || ''
+      };
+    }
+
+    const targetItem = this.enrichItemWithBranchData(context.item, category, device);
+    const targetKey = this.getItemKey(targetItem, category, device);
+
+    const nodesMap = new Map();
+    const edges = [];
+    const visited = new Set();
+
+    const traverse = (rawItem, depth = 0) => {
+      if (!rawItem) return;
+
+      const normalized = this.enrichItemWithBranchData(rawItem, category, device);
+      const key = this.getItemKey(normalized, category, device);
+      if (!key) return;
+
+      if (!nodesMap.has(key)) {
+        nodesMap.set(key, {
+          key,
+          item: normalized,
+          depth
+        });
+      } else {
+        const existing = nodesMap.get(key);
+        existing.depth = Math.max(existing.depth, depth);
+      }
+
+      if (visited.has(key)) return;
+      visited.add(key);
+
+      const requirements = this.getRequirementItems(normalized, category, device);
+      if (!requirements.length) return;
+
+      requirements.forEach((req) => {
+        const enrichedReq = this.enrichItemWithBranchData(req, category, device);
+        const reqKey = this.getItemKey(enrichedReq, category, device);
+        if (!reqKey) return;
+
+        edges.push({ from: reqKey, to: key });
+        traverse(enrichedReq, depth + 1);
+      });
+    };
+
+    traverse(targetItem, 0);
+
+    let maxDepthRecorded = 0;
+    nodesMap.forEach((entry) => {
+      if (entry.depth > maxDepthRecorded) {
+        maxDepthRecorded = entry.depth;
+      }
+    });
+
+    const incomingCount = new Map();
+    edges.forEach(edge => {
+      incomingCount.set(edge.to, (incomingCount.get(edge.to) || 0) + 1);
+    });
+
+    const baseOption = this.getBaseDeviceOption(category, device);
+    if (baseOption) {
+      const baseKey = this.getItemKey(baseOption, category, device) || `base::${category}::${device}`;
+      if (!nodesMap.has(baseKey)) {
+        nodesMap.set(baseKey, {
+          key: baseKey,
+          item: baseOption,
+          depth: maxDepthRecorded + 1,
+          isBase: true
+        });
+
+        nodesMap.forEach((entry, key) => {
+          if (key === baseKey) return;
+          if (!incomingCount.has(key)) {
+            edges.push({ from: baseKey, to: key });
+            incomingCount.set(key, 1);
+          }
+        });
+      }
+    }
+
+    const nodes = Array.from(nodesMap.values()).map((entry) => {
+      const isBase = Boolean(entry.isBase);
+      const normalizedPrice = this.normalizePrice(entry.item.price);
+      const owned = isBase ? true : utils.isPurchased(entry.item.title);
+      const affordable = !isBase && !owned && utils.canAfford(normalizedPrice);
+      const statusClass = isBase ? 'base' : (owned ? 'owned' : (affordable ? 'affordable' : 'locked'));
+
+      return {
+        ...entry,
+        price: normalizedPrice,
+        owned,
+        statusClass,
+        statusText: '',
+        isBase,
+        isTarget: entry.key === targetKey
+      };
+    });
+
+    const nodesForTotals = nodes.filter(node => !node.isBase);
+    const totalCost = nodesForTotals.reduce((sum, node) => sum + (Number.isFinite(node.price) ? node.price : 0), 0);
+    const ownedCost = nodesForTotals.reduce((sum, node) => sum + (node.owned ? node.price : 0), 0);
+    const neededCost = Math.max(0, totalCost - ownedCost);
+
+    return {
+      nodes,
+      edges,
+      totalCost,
+      ownedCost,
+      neededCost,
+      targetTitle: targetItem.title,
+      category,
+      device
+    };
+  },
+
+  buildNodeLabel(node) {
+    const title = utils.escapeHtml(node.item.title);
+    const coinsValue = Number.isFinite(node.price) ? Math.round(node.price) : 0;
+    const coinsText = utils.escapeHtml(utils.formatCoins(coinsValue));
+    const status = utils.escapeHtml(node.statusText);
+
+    return `${title}<br/>${coinsText}<br/>${status}`;
+  },
+
+  buildDiagram(graph) {
+    if (!graph.nodes.length) {
+      return '';
+    }
+
+    const lines = ['flowchart TB'];
+    const sortedNodes = [...graph.nodes].sort((a, b) => b.depth - a.depth);
+    const idMap = new Map();
+
+    sortedNodes.forEach((node, index) => {
+      const nodeId = `routeNode_${index}`;
+      idMap.set(node.key, nodeId);
+      const safeLabel = this.buildNodeLabel(node).replace(/"/g, '\\"');
+      lines.push(`${nodeId}["${safeLabel}"]`);
+    });
+
+    graph.edges.forEach((edge) => {
+      const fromId = idMap.get(edge.from);
+      const toId = idMap.get(edge.to);
+      if (fromId && toId) {
+        lines.push(`${fromId} --> ${toId}`);
+      }
+    });
+
+    lines.push('classDef owned fill:#f2fce2,stroke:#4d7c0f,stroke-width:2px,color:#365314;');
+    lines.push('classDef affordable fill:#fff3d6,stroke:#d97706,stroke-width:2px,color:#92400e;');
+    lines.push('classDef locked fill:#fde2e4,stroke:#be123c,stroke-width:2px,color:#9f1239;');
+    lines.push('classDef target stroke:#2563eb,stroke-width:3px;');
+    lines.push('classDef sketch fill:#fff9ed,stroke:#8b5a2b,stroke-width:1.5px,color:#422006;');
+
+    sortedNodes.forEach((node) => {
+      const nodeId = idMap.get(node.key);
+      if (!nodeId) return;
+
+      const classNames = ['sketch', node.statusClass];
+      if (node.isTarget) {
+        classNames.push('target');
+      }
+      const uniqueClasses = [...new Set(classNames.filter(Boolean))];
+      if (uniqueClasses.length > 0) {
+        lines.push(`class ${nodeId} ${uniqueClasses.join(',')}`);
+      }
+    });
+
+    return lines.join('\n');
+  },
+
+  buildSvgDiagram(graph) {
+    if (!graph.nodes.length) {
+      return this.buildTextFallback(graph);
+    }
+
+    const nodes = graph.nodes.map(node => ({ ...node }));
+    const maxDepth = nodes.reduce((acc, node) => Math.max(acc, node.depth), 0);
+    const levels = Array.from({ length: maxDepth + 1 }, () => []);
+
+    nodes.forEach(node => {
+      const level = maxDepth - node.depth;
+      node.level = level;
+      levels[level].push(node);
+    });
+
+    const nodeWidth = 240;
+    const nodeHeight = 100;
+    const horizontalGap = 44;
+    const verticalGap = 118;
+    const paddingX = 32;
+    const paddingY = 44;
+
+    const levelWidths = levels.map(levelNodes => {
+      const count = levelNodes.length || 1;
+      return count * nodeWidth + (count - 1) * horizontalGap;
+    });
+
+    const maxRowWidth = Math.max(...levelWidths, nodeWidth);
+    const svgWidth = paddingX * 2 + maxRowWidth;
+    const svgHeight = paddingY * 2 + (levels.length > 0
+      ? levels.length * nodeHeight + (levels.length - 1) * verticalGap
+      : nodeHeight + verticalGap);
+
+    levels.forEach((levelNodes, levelIndex) => {
+      levelNodes.sort((a, b) => a.item.title.localeCompare(b.item.title));
+      const levelWidth = levelWidths[levelIndex] || nodeWidth;
+      const startX = paddingX + (maxRowWidth - levelWidth) / 2;
+      levelNodes.forEach((node, index) => {
+        node.x = startX + index * (nodeWidth + horizontalGap);
+        node.y = paddingY + levelIndex * (nodeHeight + verticalGap);
+      });
+    });
+
+    const nodeByKey = new Map();
+    nodes.forEach(node => {
+      nodeByKey.set(node.key, node);
+    });
+
+    const edgePaths = graph.edges.map(edge => {
+      const from = nodeByKey.get(edge.from);
+      const to = nodeByKey.get(edge.to);
+      if (!from || !to) return '';
+      const startX = from.x + nodeWidth / 2;
+      const startY = from.y + nodeHeight;
+      const endX = to.x + nodeWidth / 2;
+      const endY = to.y;
+      const midY = (startY + endY) / 2;
+      return `<path d="M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}" class="siege-route-edge" marker-end="url(#siege-route-arrow)" />`;
+    }).join('');
+
+    const nodeBlocks = nodes.map(node => {
+      const title = utils.escapeHtml(node.item.title);
+      const coinsValue = Number.isFinite(node.price) ? Math.round(node.price) : 0;
+      const hasCoinLine = !node.isBase && coinsValue > 0;
+      const coinsText = hasCoinLine ? utils.escapeHtml(utils.formatCoins(coinsValue)) : '';
+      const classes = ['siege-route-node', node.statusClass];
+      if (node.isTarget) {
+        classes.push('target');
+      }
+
+      const titleY = hasCoinLine ? 42 : (nodeHeight / 2);
+      const titleBaseline = hasCoinLine ? '' : 'dominant-baseline="middle"';
+      const coinLine = hasCoinLine
+        ? `<text x="${nodeWidth / 2}" y="${nodeHeight - 24}" class="siege-route-node-coins">${coinsText}</text>`
+        : '';
+
+      return `
+        <g class="${classes.join(' ')}" transform="translate(${node.x}, ${node.y})">
+          <rect width="${nodeWidth}" height="${nodeHeight}" rx="16" ry="16" />
+          <text x="${nodeWidth / 2}" y="${titleY}" ${titleBaseline} class="siege-route-node-title">${title}</text>
+          ${coinLine}
+        </g>
+      `;
+    }).join('');
+
+    return `
+      <svg class="siege-route-svg-canvas" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="siege-route-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L10,5 L0,10 z" class="siege-route-edge-arrow" />
+          </marker>
+        </defs>
+        <g class="siege-route-edges">${edgePaths}</g>
+        <g class="siege-route-nodes">${nodeBlocks}</g>
+      </svg>
+    `;
+  },
+
+  buildSummary(graph) {
+    if (!graph.nodes.length) {
+      return '';
+    }
+
+    const totalCoins = Math.round(graph.totalCost);
+    const ownedCoins = Math.round(graph.ownedCost);
+    const neededCoins = Math.max(0, Math.round(graph.neededCost));
+    const title = utils.escapeHtml(graph.targetTitle || 'Upgrade route');
+    const totalText = utils.escapeHtml(utils.formatCoins(totalCoins));
+    const ownedText = utils.escapeHtml(utils.formatCoins(ownedCoins));
+    const neededText = utils.escapeHtml(utils.formatCoins(neededCoins));
+
+    return `
+      <div class="siege-route-summary-card">
+        <div class="siege-route-summary-title">${title}</div>
+        <div class="siege-route-summary-row"><span>Total</span><span>${totalText}</span></div>
+        <div class="siege-route-summary-row"><span>Owned</span><span>${ownedText}</span></div>
+        <div class="siege-route-summary-row"><span>Remaining</span><span>${neededText}</span></div>
+      </div>
+    `;
+  },
+
+  buildTextFallback(graph) {
+    if (!graph.nodes.length) {
+      return `
+        <div class="siege-route-placeholder">
+          No prerequisites found for this upgrade.
+        </div>
+      `;
+    }
+
+    const ordered = [...graph.nodes].sort((a, b) => b.depth - a.depth);
+    const listItems = ordered.map((node) => {
+      const title = utils.escapeHtml(node.item.title);
+      const coinsValue = Number.isFinite(node.price) ? Math.round(node.price) : 0;
+      const coinsPart = (!node.isBase && coinsValue > 0) ? ` — ${utils.escapeHtml(utils.formatCoins(coinsValue))}` : '';
+      return `<li><strong>${title}</strong>${coinsPart}</li>`;
+    }).join('');
+
+    return `
+      <div class="siege-route-fallback">
+        <ul>${listItems}</ul>
+      </div>
+    `;
+  },
+
+  highlightActiveCard() {
+    document.querySelectorAll('.siege-item-card.route-active').forEach((card) => {
+      card.classList.remove('route-active');
+    });
+
+    if (!currentRouteItem || !currentRouteItem.item) {
+      return;
+    }
+
+    document.querySelectorAll('.siege-item-card').forEach((card) => {
+      const datasetValue = card.dataset.item;
+      if (!datasetValue) return;
+
+      try {
+        const parsed = JSON.parse(decodeURIComponent(datasetValue));
+        const sameTitle = parsed.title === currentRouteItem.item.title;
+        const sameCategory = !parsed.category || parsed.category === currentRouteItem.category;
+        const sameDevice = !parsed.device || parsed.device === currentRouteItem.device;
+
+        if (sameTitle && sameCategory && sameDevice) {
+          card.classList.add('route-active');
+        }
+      } catch (error) {
+      }
+    });
+  },
+
+  async renderCurrentRoute() {
+    const container = document.querySelector('[data-route-container]');
+    const summaryContainer = document.querySelector('[data-route-summary]');
+
+    this.highlightActiveCard();
+
+    if (!container) {
+      return;
+    }
+
+    if (!currentRouteItem || !currentRouteItem.item) {
+      if (summaryContainer) {
+        summaryContainer.innerHTML = '';
+      }
+      container.innerHTML = `
+        <div class="siege-route-placeholder">
+          Select an upgrade from the grid to preview its route.
+        </div>
+      `;
+      return;
+    }
+
+    const graph = this.buildGraph(currentRouteItem);
+
+    if (summaryContainer) {
+      summaryContainer.innerHTML = graph.nodes.length ? this.buildSummary(graph) : '';
+    }
+
+    if (!graph.nodes.length) {
+      container.innerHTML = `
+        <div class="siege-route-placeholder">
+          No prerequisites found for this upgrade.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = this.buildSvgDiagram(graph);
+  }
+};
+
 const api = {
   async loadTechTreeData() {
     try {
@@ -1198,6 +2169,7 @@ const api = {
       userCoins = coins.coins || 0;
       userPurchases = purchases.purchases || [];
       userGoals = goals.getStoredGoals();
+      goals.refreshMicroGoals();
       return true;
     } catch (error) {
       return false;
@@ -1292,9 +2264,15 @@ const components = {
   },
 
   createItemCard(item) {
+    const normalizedPrice = routePlanner.normalizePrice(item.price);
     const purchased = utils.isPurchased(item.title);
-    const affordable = utils.canAfford(item.price);
+    const affordable = utils.canAfford(normalizedPrice);
     const currentCoins = utils.getCurrentCoins();
+    const canPlanRoute = Boolean(
+      selectedDevice &&
+      ['laptop', 'tablet', 'laptop_grant'].includes(currentCategory)
+    );
+    const showRouteButton = canPlanRoute && Boolean(item.requires);
 
     let statusClass = 'unaffordable';
     let statusText = 'Cannot afford';
@@ -1310,7 +2288,7 @@ const components = {
 
     const cardClass = `siege-item-card ${!affordable ? 'disabled' : ''}`;
 
-    const estimate = goals.estimateTimeForItem(item.price, currentCoins);
+    const estimate = goals.estimateTimeForItem(normalizedPrice, currentCoins);
     const timeEstimate = `
       <div style="font-size: 0.85rem; color: #6b5437; margin-top: 0.5rem; line-height: 1.4;">
         ⏱️ Total time: <strong>${estimate.totalTime}</strong><br>
@@ -1318,13 +2296,20 @@ const components = {
       </div>
     `;
 
+    const itemPayload = {
+      ...item,
+      price: normalizedPrice,
+      category: currentCategory,
+      device: selectedDevice
+    };
+
     return `
-      <div class="${cardClass}" data-item="${encodeURIComponent(JSON.stringify(item))}">
+      <div class="${cardClass}" data-item="${encodeURIComponent(JSON.stringify(itemPayload))}">
         <div class="siege-item-header">
           ${item.image ? `<div class="siege-item-image"><img src="${item.image}" alt="${item.title}" /></div>` : ''}
           <div class="siege-item-header-text">
             <h3 class="siege-item-title">${item.title}</h3>
-            <div class="siege-item-price">${utils.formatCoins(item.price)}</div>
+            <div class="siege-item-price">${utils.formatCoins(normalizedPrice)}</div>
           </div>
         </div>
         <div class="siege-item-description">${item.description}</div>
@@ -1333,7 +2318,8 @@ const components = {
           ${item.requires ? `<span class="siege-status-badge">Requires: ${item.requires}</span>` : ''}
         </div>
         ${timeEstimate}
-        ${goals.createGoalButton(item)}
+        ${showRouteButton ? '<button class="siege-route-button" data-action="route">View Route</button>' : ''}
+        ${goals.createGoalButton({ ...item, price: normalizedPrice })}
       </div>
     `;
   },
@@ -1411,10 +2397,15 @@ const components = {
       return '<div class="siege-loading">Loading upgrades...</div>';
     }
 
+    const layoutClass = isRouteCollapsed ? 'collapsed' : 'expanded';
+
     return `
-      ${this.createDeviceSelector(category)}  
-      <div class="siege-upgrades-section">
-        ${this.createUpgradeCategories(category)}
+      ${this.createDeviceSelector(category)}
+      <div class="siege-upgrades-layout ${layoutClass}">
+        <div class="siege-upgrades-main">
+          ${this.createUpgradeCategories(category)}
+        </div>
+        ${routePlanner.createSidebar()}
       </div>
     `;
   },
@@ -1429,10 +2420,11 @@ const components = {
     const hasReqItems = [];
 
     Object.values(branches).forEach(item => {
-      if (item.requires) {
-        hasReqItems.push(item);
+      const enriched = routePlanner.enrichItemWithBranchData(item, category, selectedDevice);
+      if (enriched.requires) {
+        hasReqItems.push(enriched);
       } else {
-        noReqItems.push(item);
+        noReqItems.push(enriched);
       }
     });
 
@@ -1503,10 +2495,11 @@ const handlers = {
     if (category !== currentCategory) {
       currentCategory = category;
       if (['laptop', 'tablet', 'laptop_grant'].includes(category)) {
-        selectedDevice = utils.getDefaultDevice(category);
+        selectedDevice = utils.getDefaultDevice(category) || null;
       } else {
         selectedDevice = null;
       }
+      routePlanner.handleContextChange(currentCategory, selectedDevice);
       await render();
     }
   },
@@ -1517,7 +2510,7 @@ const handlers = {
       const selectedEl = dropdown.querySelector('.siege-dropdown-selected');
       const optionsEl = dropdown.querySelector('.siege-dropdown-options');
 
-      selectedDevice = event.target.dataset.value;
+      selectedDevice = event.target.dataset.value || null;
       selectedEl.innerHTML = event.target.textContent + `
         <svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1528,6 +2521,7 @@ const handlers = {
       optionsEl.classList.remove('show');
       dropdown.classList.remove('open');
 
+      routePlanner.handleContextChange(currentCategory, selectedDevice);
       await render();
     } else if (event.target.classList.contains('siege-dropdown-selected') || event.target.closest('.siege-dropdown-selected')) {
       const dropdown = event.target.closest('.siege-custom-dropdown') || event.target.parentElement.closest('.siege-custom-dropdown');
@@ -1544,20 +2538,27 @@ const handlers = {
   },
 
   async handleItemClick(event) {
+    if (event.target.closest('.siege-route-button')) {
+      return;
+    }
+
     const card = event.target.closest('.siege-item-card');
-    if (!card || card.classList.contains('disabled')) return;
+    if (!card) return;
+    if (card.classList.contains('disabled')) return;
 
     try {
       const itemData = JSON.parse(decodeURIComponent(card.dataset.item));
+      const itemPrice = routePlanner.normalizePrice(itemData.price);
+      itemData.price = itemPrice;
 
-      if (!utils.canAfford(itemData.price)) {
+      if (!utils.canAfford(itemPrice)) {
         components.showToast('Not enough coins!');
         return;
       }
 
       const modal = components.showModal(
         'Confirm Purchase',
-        `Purchase ${itemData.title} for ${utils.formatCoins(itemData.price)}?`,
+        `Purchase ${itemData.title} for ${utils.formatCoins(itemPrice)}?`,
         [
           { text: 'Cancel', action: 'cancel' },
           { text: 'Buy', action: 'confirm' }
@@ -1571,7 +2572,7 @@ const handlers = {
         } else if (action === 'confirm') {
           modal.remove();
 
-          const result = await api.purchaseItem(itemData.title, itemData.price);
+          const result = await api.purchaseItem(itemData.title, itemPrice);
 
           if (result.success) {
             components.showToast(`Successfully purchased ${itemData.title}!`);
@@ -1622,6 +2623,59 @@ const handlers = {
     }
   },
 
+  async handleRouteButtonClick(event) {
+    const button = event.target.closest('.siege-route-button');
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const card = button.closest('.siege-item-card');
+    if (!card) return;
+
+    try {
+      const itemData = JSON.parse(decodeURIComponent(card.dataset.item));
+      itemData.price = routePlanner.normalizePrice(itemData.price);
+      routePlanner.setCurrentRoute({
+        item: itemData,
+        category: currentCategory,
+        device: selectedDevice
+      });
+      await routePlanner.renderCurrentRoute();
+    } catch (error) {
+      console.error('[Siege Utils] Failed to prepare route diagram:', error);
+      components.showToast('Unable to build route for this upgrade.');
+    }
+  },
+
+  handleRouteToggle(event) {
+    const toggle = event.target.closest('[data-route-toggle]');
+    if (!toggle) return;
+
+    event.preventDefault();
+    isRouteCollapsed = !isRouteCollapsed;
+
+    const sidebarCard = document.querySelector('.siege-route-card');
+    if (sidebarCard) {
+      sidebarCard.classList.toggle('collapsed', isRouteCollapsed);
+      sidebarCard.classList.toggle('expanded', !isRouteCollapsed);
+    }
+
+    toggle.setAttribute('aria-expanded', (!isRouteCollapsed).toString());
+    const icon = toggle.querySelector('.siege-route-toggle-icon');
+    if (icon) {
+      icon.textContent = isRouteCollapsed ? '▸' : '▾';
+    }
+
+    const layout = document.querySelector('.siege-upgrades-layout');
+    if (layout) {
+      layout.classList.toggle('collapsed', isRouteCollapsed);
+      layout.classList.toggle('expanded', !isRouteCollapsed);
+    }
+
+    routePlanner.renderCurrentRoute();
+  },
+
   handleProgressTabClick(event) {
     const tab = event.target.closest('.siege-progress-tab');
     if (!tab) return;
@@ -1668,11 +2722,17 @@ async function render() {
   const interfaceHTML = await components.createMainInterface();
   container.innerHTML = interfaceHTML;
 
+  routePlanner.ensureDefaultRoute(currentCategory, selectedDevice);
+
   container.addEventListener('click', handlers.handleCategoryChange);
   container.addEventListener('click', handlers.handleDeviceChange);
   container.addEventListener('click', handlers.handleItemClick);
   container.addEventListener('click', handlers.handleGoalButtonClick);
+  container.addEventListener('click', handlers.handleRouteButtonClick);
+  container.addEventListener('click', handlers.handleRouteToggle);
   container.addEventListener('click', handlers.handleProgressTabClick);
+
+  await routePlanner.renderCurrentRoute();
 }
 
 async function init() {
@@ -1700,7 +2760,7 @@ async function init() {
     isActive = true;
 
     if (currentCategory === 'laptop' || currentCategory === 'tablet' || currentCategory === 'laptop_grant') {
-      selectedDevice = utils.getDefaultDevice(currentCategory);
+      selectedDevice = utils.getDefaultDevice(currentCategory) || null;
     }
 
     document.body.classList.add('siege-utils-active');
@@ -2064,6 +3124,7 @@ async function enhanceProjectPage() {
 async function initProjectStats() {
   if (window.location.pathname === '/armory') {
     await enhanceProjectCards();
+    goals.refreshMicroGoals();
   } else if (window.location.pathname.match(/\/armory\/\d+/)) {
     let retries = 0;
     const maxRetries = 5;
@@ -2071,6 +3132,7 @@ async function initProjectStats() {
     while (retries < maxRetries) {
       try {
         await enhanceProjectPage();
+        goals.refreshMicroGoals();
         break;
       } catch (error) {
         retries++;
@@ -2110,19 +3172,29 @@ if (typeof window !== 'undefined') {
     }
 
 
-    const coffersTitle = document.querySelector('.home-section-title');
+    const coffersTitle = utils.findCoffersTitle();
     let currentCoins = 0;
-    if (coffersTitle && coffersTitle.textContent.includes('Your coffers:')) {
+    let hasCoinValue = false;
+    if (coffersTitle) {
       const coinMatch = coffersTitle.textContent.match(/Your coffers: (\d+)/);
       if (coinMatch) {
-        currentCoins = parseInt(coinMatch[1]);
+        const parsedCoins = parseInt(coinMatch[1], 10);
+        if (!Number.isNaN(parsedCoins)) {
+          currentCoins = parsedCoins;
+          hasCoinValue = true;
+        }
       }
+    }
+
+    if (hasCoinValue) {
+      userCoins = currentCoins;
     }
 
     const projectionData = goals.getProjectionData();
     enhanceCoffersDisplay(projectionData);
     addTotalPillagingStats(currentCoins);
     addWeeklyBreakdownChart();
+    goals.refreshMicroGoals();
     addWeeklyHoursPlanner();
     initCountdownTimer();
     homeContainer.dataset.siegeEnhanced = 'true';
@@ -2130,8 +3202,8 @@ if (typeof window !== 'undefined') {
   }
 
   function enhanceCoffersDisplay(projectionData) {
-    const coffersTitle = document.querySelector('.home-section-title');
-    if (!coffersTitle || !coffersTitle.textContent.includes('Your coffers:')) {
+    const coffersTitle = utils.findCoffersTitle();
+    if (!coffersTitle) {
       return;
     }
 
@@ -2322,6 +3394,105 @@ if (typeof window !== 'undefined') {
     twoColDiv.insertAdjacentHTML('afterend', statsSection);
   }
 
+  function renderMicroGoalCard() {
+    if (window.location.pathname !== '/keep') {
+      return;
+    }
+
+    const removeExisting = () => {
+      const existing = document.querySelector('[data-siege-microgoal-card]');
+      if (existing) existing.remove();
+    };
+
+    removeExisting();
+
+    const storedGoals = goals.getStoredGoals();
+
+    if (!storedGoals || storedGoals.length === 0) {
+      const emptyHTML = `
+        <div class="home-card-transparent" data-siege-microgoal-card="true" style="margin-top: 2rem;">
+          <div class="home-card-body-reset">
+            <header class="home-header">
+              <h2 class="home-section-title">Micro Goals</h2>
+            </header>
+            <div style="margin-top: 1rem; padding: 1rem; text-align: center;">
+              <p style="font-size: 0.85rem; color: rgba(0,0,0,0.6); margin: 0;">
+                Add at least one goal to unlock micro-goal planning.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const statsSection = document.querySelector('[data-siege-stats]');
+      if (statsSection) {
+        statsSection.insertAdjacentHTML('beforebegin', emptyHTML);
+      }
+      return;
+    }
+
+    const snapshot = goals.buildMicroGoalSnapshot();
+
+    if (!snapshot) {
+      console.warn('[Siege Utils] No snapshot data available for micro goals');
+      return;
+    }
+
+    const formatNumber = (value, digits = 1) => {
+      if (!Number.isFinite(value)) return '0.0';
+      return value.toFixed(digits);
+    };
+
+    const dailyTarget = snapshot.targets.daily;
+    const weeklyTarget = snapshot.targets.weekly;
+    const dailyActual = snapshot.progress.dailyActual;
+    const weeklyActual = snapshot.progress.weeklyActual;
+    const dailyPercent = snapshot.progress.dailyPercent;
+    const weeklyPercent = snapshot.progress.weeklyPercent;
+
+    const snapshotRow = (label, target, actual, percent, remainingValue) => `
+      <div class="home-row" style="justify-content: space-between; padding: 0.75rem;">
+        <span>${label}</span>
+        <strong>${formatNumber(actual, 1)}h/${formatNumber(target, 1)}h (${formatNumber(percent, 0)}%)</strong>
+      </div>
+      <div class="home-row" style="justify-content: space-between; padding: 0.65rem 0.75rem; border-top: 1px solid rgba(0,0,0,0.08);">
+        <span>Remaining</span>
+        <strong>${formatNumber(Math.max(0, remainingValue), 1)}h</strong>
+      </div>
+    `;
+
+    const cardHTML = `
+      <div class="home-card-transparent" data-siege-microgoal-card="true" style="margin-top: 2rem;">
+        <div class="home-card-body-reset">
+          <header class="home-header">
+            <h2 class="home-section-title">Micro Goals</h2>
+          </header>
+
+          <div class="home-two-col" style="margin-top: 1rem;">
+            <div class="home-col">
+              <div class="home-list home-list-center">
+                <div class="home-row" style="padding: 0.75rem; font-weight: 600;">Daily snapshot</div>
+                ${snapshotRow('Daily target', dailyTarget, dailyActual, dailyPercent, dailyTarget - dailyActual)}
+              </div>
+            </div>
+            <div class="home-col">
+              <div class="home-list home-list-center">
+                <div class="home-row" style="padding: 0.75rem; font-weight: 600;">Weekly snapshot</div>
+                ${snapshotRow('Weekly target', weeklyTarget, weeklyActual, weeklyPercent, weeklyTarget - weeklyActual)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const statsSection = document.querySelector('[data-siege-stats]');
+    if (statsSection) {
+      statsSection.insertAdjacentHTML('beforebegin', cardHTML);
+    }
+
+  }
+
   function addWeeklyBreakdownChart() {
     if (document.querySelector('[data-siege-weekly-chart]')) {
       return;
@@ -2330,6 +3501,7 @@ if (typeof window !== 'undefined') {
     const shippedStats = projectStats.getStoredStats();
     const timeTracking = projectStats.getStoredTimeTracking();
     const weeklyData = {};
+    const currentWeek = utils.getCurrentWeek();
 
     Object.values(shippedStats).forEach(project => {
       if (!weeklyData[project.week]) {
@@ -2379,6 +3551,14 @@ if (typeof window !== 'undefined') {
       completeWeeklyData[week] = weeklyData[week] || { hours: 0, projects: 0 };
     }
 
+    const hoursSummary = goals.getHoursSummary();
+    if (hoursSummary.currentWeekHours > 0) {
+      if (!completeWeeklyData[currentWeek]) {
+        completeWeeklyData[currentWeek] = { hours: 0, projects: 0 };
+      }
+      completeWeeklyData[currentWeek].hours = hoursSummary.currentWeekHours;
+    }
+
     const chartData = Object.keys(completeWeeklyData)
       .sort((a, b) => parseInt(a) - parseInt(b))
       .map(week => {
@@ -2412,8 +3592,6 @@ if (typeof window !== 'undefined') {
           isHoursProjected
         };
       });
-
-    const currentWeek = utils.getCurrentWeek();
     const avgEfficiency = projectStats.getAverageEfficiency();
 
     const futureWeek = currentWeek + 1;
@@ -2423,7 +3601,7 @@ if (typeof window !== 'undefined') {
       week: futureWeek,
       hours: chartData.length > 0 ? chartData[chartData.length - 1].hours * 0.9 : 8,
       coinsPerHour: futureWeekEfficiency,
-      label: `Week ${futureWeek}`,
+      label: `Week ${futureWeek}`,  
       isProjected: true,
       isCoinsProjected: true,
       isHoursProjected: true
@@ -2457,7 +3635,7 @@ if (typeof window !== 'undefined') {
       const chartId = 'siege-weekly-chart-' + Date.now();
 
       return `
-        <section data-siege-weekly-chart="true" class="home-card-transparent siege-weekly-card" style="margin-top: 2.5rem; background: rgba(255, 255, 255, 0.14); border: none; border-radius: 1rem; box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.18); backdrop-filter: blur(12px);">
+        <section data-siege-weekly-chart="true" class="home-card-transparent siege-weekly-card" style="margin-top: 2.5rem; margin-left: 2rem; max-width: calc(100% - 2rem); background: rgba(255, 255, 255, 0.14); border: none; border-radius: 1rem; box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.18); backdrop-filter: blur(12px);">
           <div class="home-card-body-reset" style="padding: 1.75rem;">
             <div class="home-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem;">
               <div>
@@ -2649,32 +3827,10 @@ ${legendMarkup}
       return;
     }
 
-    const shippedStats = projectStats.getStoredStats();
-    const timeTracking = projectStats.getStoredTimeTracking();
+    const hoursSummary = goals.getHoursSummary();
+    const currentWeekHours = Number.isFinite(hoursSummary.currentWeekHours) ? hoursSummary.currentWeekHours : 0;
+    const todayLoggedHours = Number.isFinite(hoursSummary.todayHours) ? hoursSummary.todayHours : null;
     const currentWeek = utils.getCurrentWeek();
-    let currentWeekHours = 0;
-
-    Object.values(shippedStats).forEach(project => {
-      if (project.week === currentWeek) {
-        currentWeekHours += project.hours;
-      }
-    });
-
-    Object.keys(timeTracking).forEach(projectId => {
-      const tracking = timeTracking[projectId];
-      if (tracking.snapshots && tracking.snapshots.length > 0) {
-        const hasShippedData = Object.values(shippedStats).some(project =>
-          project.projectId === projectId || `project_${projectId}` in shippedStats
-        );
-        if (!hasShippedData) {
-          tracking.snapshots.forEach(snapshot => {
-            if (snapshot.week === currentWeek) {
-              currentWeekHours += snapshot.hours;
-            }
-          });
-        }
-      }
-    });
 
     const savedConfig = localStorage.getItem('siegeutils_weeklydata');
     let config = savedConfig ? JSON.parse(savedConfig) : {
@@ -2698,27 +3854,72 @@ ${legendMarkup}
     const remainingHours = Math.max(0, weekGoal - currentWeekHours);
 
     const now = new Date();
-    const dayOfWeek = (now.getDay() + 6) % 7; 
+    const dayOfWeek = (now.getDay() + 6) % 7;
 
     function calculateDailyHours() {
-      let totalFixedHours = 0;
-      let flexibleDays = 0;
+      const todayPlannedHours = config.fixedHours[dayOfWeek] > 0
+        ? config.fixedHours[dayOfWeek]
+        : 0;
+      const todayIsWorkDay = config.workDays[dayOfWeek];
+      const todayActualHours = todayLoggedHours !== null ? todayLoggedHours : 0;
 
-      for (let i = dayOfWeek; i < 7; i++) {
+      let futurePlannedHours = 0;
+      let futureFlexibleDays = 0;
+
+      for (let i = dayOfWeek + 1; i < 7; i++) {
         if (config.fixedHours[i] > 0) {
-          totalFixedHours += config.fixedHours[i];
+          futurePlannedHours += config.fixedHours[i];
         } else if (config.workDays[i]) {
-          flexibleDays++;
+          futureFlexibleDays++;
         }
       }
 
-      const remainingAfterFixed = Math.max(0, remainingHours - totalFixedHours);
-      const hoursPerFlexDay = flexibleDays > 0 ? remainingAfterFixed / flexibleDays : 0;
+      let remainingAfterToday = remainingHours;
 
-      return { hoursPerFlexDay, totalFixedHours, flexibleDays };
+      if (todayPlannedHours > 0) {
+        remainingAfterToday = Math.max(0, remainingAfterToday - todayPlannedHours);
+      }
+
+      const remainingAfterFuture = Math.max(0, remainingAfterToday - futurePlannedHours);
+
+      const totalFlexibleDays = futureFlexibleDays + (todayIsWorkDay && todayPlannedHours === 0 ? 1 : 0);
+      const hoursPerFlexDay = totalFlexibleDays > 0 ? remainingAfterFuture / totalFlexibleDays : 0;
+
+      return {
+        hoursPerFlexDay,
+        totalFlexibleDays,
+        futureFlexibleDays,
+        todayPlannedHours,
+        todayIsWorkDay,
+        todayActualHours
+      };
     }
 
-    const { hoursPerFlexDay, totalFixedHours, flexibleDays } = calculateDailyHours();
+    const {
+      hoursPerFlexDay,
+      totalFlexibleDays,
+      futureFlexibleDays,
+      todayPlannedHours,
+      todayIsWorkDay,
+      todayActualHours
+    } = calculateDailyHours();
+
+    let todayTargetHours;
+    let todayRemainingHours;
+
+    if (todayPlannedHours > 0) {
+      todayTargetHours = todayPlannedHours;
+      todayRemainingHours = Math.max(0, todayTargetHours - todayActualHours);
+    } else if (futureFlexibleDays === 0 && todayIsWorkDay && remainingHours > 0) {
+      todayTargetHours = todayActualHours + remainingHours;
+      todayRemainingHours = remainingHours;
+    } else if (todayIsWorkDay) {
+      todayTargetHours = hoursPerFlexDay;
+      todayRemainingHours = Math.max(0, todayTargetHours - todayActualHours);
+    } else {
+      todayTargetHours = 0;
+      todayRemainingHours = 0;
+    }
 
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -2751,22 +3952,26 @@ ${legendMarkup}
               if (remainingHours <= 0) return '';
 
               const parts = [];
-              const todayFixedHours = config.fixedHours[dayOfWeek];
 
-              if (todayFixedHours > 0) {
-                parts.push(`${todayFixedHours.toFixed(1)}h today`);
+              if (todayIsWorkDay) {
+                if (todayLoggedHours !== null && todayLoggedHours > 0) {
+                  parts.push(`${todayLoggedHours.toFixed(1)}h logged today`);
+                }
+
+                if (todayRemainingHours > 0) {
+                  parts.push(`${todayRemainingHours.toFixed(1)}h pending today`);
+                } else if (todayLoggedHours === null && todayTargetHours > 0) {
+                  parts.push(`${todayTargetHours.toFixed(1)}h goal today`);
+                }
               }
 
-              if (flexibleDays > 0 && hoursPerFlexDay > 0) {
-                const flexText = parts.length > 0
-                  ? `${hoursPerFlexDay.toFixed(1)}h/day for ${flexibleDays} days`
-                  : `~${hoursPerFlexDay.toFixed(1)}h/day`;
-                parts.push(flexText);
+              if (futureFlexibleDays > 0 && hoursPerFlexDay > 0) {
+                parts.push(`${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''}`);
               }
 
               return parts.length > 0 ? `
                 <span style="font-size: 0.8rem; color: #047857; font-weight: 500;">
-                  • ${parts.join(' & ')}
+                  • ${parts.join(' • ')}
                 </span>
               ` : '';
             })()}
@@ -2777,13 +3982,15 @@ ${legendMarkup}
 
         <div style="background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; text-align: center;">
           <div style="font-size: 1.1rem; font-weight: 600; color: #059669; margin-bottom: 0.25rem;">
-            ${remainingHours > 0 ? `${remainingHours.toFixed(1)}h remaining` : '✅ Goal reached!'}
+            ${remainingHours > 0 ? `${remainingHours.toFixed(1)}h remaining this week` : '✅ Goal reached!'}
           </div>
           ${remainingHours > 0 ? `
             <div style="font-size: 0.85rem; color: #047857;">
-              ${flexibleDays > 0
-                ? `~${hoursPerFlexDay.toFixed(1)}h per flexible day (${flexibleDays} days)`
-                : 'Adjust your schedule below'
+              ${todayRemainingHours > 0
+                ? `${todayRemainingHours.toFixed(1)}h pending today${futureFlexibleDays > 0 ? `, ~${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} future day${futureFlexibleDays !== 1 ? 's' : ''}` : ''}`
+                : futureFlexibleDays > 0
+                  ? `~${hoursPerFlexDay.toFixed(1)}h per flexible day (${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''})`
+                  : 'All set for today!'
               }
             </div>
           ` : ''}
@@ -2795,7 +4002,28 @@ ${legendMarkup}
             const isToday = i === dayOfWeek;
             const isWorkDay = config.workDays[i];
             const fixedHours = config.fixedHours[i];
-            const displayHours = fixedHours > 0 ? fixedHours.toFixed(1) : (isWorkDay && !isPast ? hoursPerFlexDay.toFixed(1) : '0');
+            let displayValue;
+            if (isPast) {
+              displayValue = '-';
+            } else if (isToday && todayLoggedHours !== null) {
+              displayValue = `${todayLoggedHours.toFixed(1)}h`;
+            } else if (fixedHours > 0) {
+              displayValue = `${fixedHours.toFixed(1)}h`;
+            } else if (isWorkDay) {
+              displayValue = `${hoursPerFlexDay.toFixed(1)}h`;
+            } else {
+              displayValue = '0h';
+            }
+
+            const statusLabel = isPast ? '' : (isToday && todayLoggedHours !== null
+              ? 'Logged'
+              : (fixedHours > 0 ? 'Fixed' : (isWorkDay ? 'Flex' : 'Off')));
+
+            const amountColor = isPast
+              ? '#9ca3af'
+              : (isToday && todayLoggedHours !== null
+                ? '#2563eb'
+                : (isWorkDay ? '#059669' : '#dc2626'));
 
             return `
               <div style="
@@ -2809,12 +4037,12 @@ ${legendMarkup}
                 <div style="font-size: 0.7rem; font-weight: 600; color: #6b5437; margin-bottom: 0.25rem;">
                   ${day}${isToday ? ' 📍' : ''}
                 </div>
-                <div style="font-size: 0.9rem; font-weight: 700; color: ${isPast ? '#9ca3af' : (isWorkDay ? '#059669' : '#dc2626')};">
-                  ${isPast ? '-' : displayHours + 'h'}
+                <div style="font-size: 0.9rem; font-weight: 700; color: ${amountColor};">
+                  ${displayValue}
                 </div>
                 ${!isPast ? `
                   <div style="font-size: 0.65rem; color: #6b5437; margin-top: 0.25rem;">
-                    ${fixedHours > 0 ? 'Fixed' : (isWorkDay ? 'Flex' : 'Off')}
+                    ${statusLabel}
                   </div>
                 ` : ''}
               </div>
@@ -2948,7 +4176,7 @@ ${legendMarkup}
     countdownContainer.style.fontWeight = '500';
     countdownContainer.style.color = '#374151';
     countdownContainer.style.padding = '0.5rem';
-    countdownContainer.style.background = 'rgba(255, 255, 255, 0.2)';
+    countdownContainer.style.background = 'linear-gradient(180deg, rgba(255, 252, 237, 0.6), rgba(245, 236, 210, 0.55))';
     countdownContainer.style.borderRadius = '8px';
     countdownContainer.style.border = '1px solid rgba(0, 0, 0, 0.05)';
     countdownContainer.style.marginLeft = '2rem'
@@ -3261,65 +4489,36 @@ function initSimpleVotingInterface() {
       const content = script.textContent;
 
       if (content && (content.includes('const votes =') || content.includes('votingManager.votes ='))) {
-
         const votesMatch = content.match(/(?:const votes|votingManager\.votes)\s*=\s*(\[[\s\S]*?\]);/);
         if (votesMatch) {
           try {
             votesData = JSON.parse(votesMatch[1]);
-
-            if (votesData && votesData.length > 0) {
-              if (votesData[0].ballot_id) {
-                ballotId = votesData[0].ballot_id;
-              } else if (votesData[0].ballotId) {
-                ballotId = votesData[0].ballotId;
-              } else {
-                console.warn('[Siege Utils] No ballot_id field found in vote. Available keys:', Object.keys(votesData[0]));
-              }
-            }
           } catch (e) {
             console.error('[Siege Utils] Failed to parse votes data:', e);
           }
         }
 
         if (!ballotId) {
-          const patterns = [
-            /const\s+currentBallotId\s*=\s*(\d+)/,
-            /(?:const\s+ballotId|votingManager\.ballotId)\s*=\s*(\d+)/, 
-            /ballot_id\s*=\s*['"]*(\d+)['"]*[;,]/
-          ];
-
-          for (const pattern of patterns) {
-            const match = content.match(pattern);
-            if (match) {
-              ballotId = parseInt(match[1]);
-              break;
-            }
+          const scriptMatch = content.match(/const\s+currentBallotId\s*=\s*(\d+)/);
+          if (scriptMatch) {
+            ballotId = parseInt(scriptMatch[1]);
           }
         }
       }
     }
 
-    if (!ballotId && votesData) {
-      const urlPatterns = [
-        /\/great-hall\/voting\/(\d+)/,
-        /\/great-hall\/(\d+)/,
-        /\/ballots\/(\d+)/,
-        /ballot[_-]?(\d+)/
-      ];
-
-      for (const pattern of urlPatterns) {
-        const urlMatch = window.location.pathname.match(pattern);
-        if (urlMatch) {
-          ballotId = parseInt(urlMatch[1]);
-          break;
-        }
+    if (!ballotId) {
+      const urlMatch = window.location.pathname.match(/\/great-hall\/(\d+)/);
+      if (urlMatch) {
+        ballotId = parseInt(urlMatch[1]);
       }
     }
 
-    if (!ballotId && votesData) {
-      const ballotElement = document.querySelector('[data-ballot-id]');
-      if (ballotElement) {
-        ballotId = parseInt(ballotElement.dataset.ballotId);
+    if (!ballotId && votesData && votesData.length > 0) {
+      if (votesData[0].ballot_id) {
+        ballotId = votesData[0].ballot_id;
+      } else if (votesData[0].ballotId) {
+        ballotId = votesData[0].ballotId;
       }
     }
 
