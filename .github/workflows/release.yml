@@ -145,6 +145,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Version**: v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Chrome Extension**: siege-utils-chrome-v${{ env.VERSION }}.zip" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Firefox Extension**: siege-utils-firefox-v${{ env.VERSION }}.zip" >> $GITHUBs_STEP_SUMMARY
+        echo "✅ **Firefox Extension**: siege-utils-firefox-v${{ env.VERSION }}.zip" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🔗 **Release URL**: https://github.com/${{ github.repository }}/releases/tag/v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
