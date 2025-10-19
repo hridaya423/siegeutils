@@ -256,8 +256,10 @@ const projectStats = {
           const rbBias = pastProjects.length > 0 ? historicalRbAvg : 1.5;
           const starsBias = pastProjects.length > 0 ? historicalStarsAvg : 3.0;
 
-          const biasCorrection = (rb - rbBias) * 0.25 + (avgStars - starsBias) * 0.25;
-          const adjustedDeviation = targetDeviation - biasCorrection;
+          const rbCorrection = (rb - rbBias) * -0.15;
+          const starsCorrection = (avgStars - starsBias) * 0.15;
+          const biasCorrection = rbCorrection + starsCorrection;
+          const adjustedDeviation = targetDeviation + biasCorrection;
 
           validCombinations.push({
             reviewerBonus: rb,
