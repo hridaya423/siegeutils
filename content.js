@@ -26,6 +26,7 @@ let selectedDevice = null;
 let userGoals = [];
 let isRouteCollapsed = true;  
 let currentRouteItem = null;
+let marketDialogueObserver = null;
 
 const utils = {
   getCSRFToken() {
@@ -175,6 +176,8 @@ const shopUtils = {
 };
 
 const projectStats = {
+  sideloadCache: new Map(),
+
   getStoredStats() {
     const stored = localStorage.getItem('siege-utils-project-stats');
     return stored ? JSON.parse(stored) : {};
@@ -201,8 +204,66 @@ const projectStats = {
   },
 
   parseCoins(coinStr) {
-    const match = coinStr.match(/(\d+\.?\d*)/);
-    return match ? parseFloat(match[1]) : 0;
+    if (!coinStr) {
+      return 0;
+    }
+
+    const normalizeNumber = (value) => parseFloat(value.replace(/,/g, ''));
+
+    const valueMatch = coinStr.match(/value[:\s]*([\d.,]+)/i);
+    if (valueMatch) {
+      const parsed = normalizeNumber(valueMatch[1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    const coinEmojiMatch = coinStr.match(/([\d.,]+)\s*🪙/);
+    if (coinEmojiMatch) {
+      const parsed = normalizeNumber(coinEmojiMatch[1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    const allNumbers = coinStr.match(/[\d.,]+/g);
+    if (allNumbers && allNumbers.length > 0) {
+      const parsed = normalizeNumber(allNumbers[allNumbers.length - 1]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return 0;
+  },
+
+  parseAverageScore(text) {
+    if (!text) {
+      return null;
+    }
+
+    const match = text.match(/avg\.?\s*score[:\s]*([\d.,]+)/i);
+    if (match) {
+      const value = parseFloat(match[1].replace(/,/g, ''));
+      return Number.isFinite(value) ? value : null;
+    }
+
+    return null;
+  },
+
+  calculateBaseCoinMultiplier(week, hours) {
+    if (!Number.isFinite(hours) || hours <= 0) {
+      return 0;
+    }
+
+    if (!Number.isFinite(week) || week <= 4) {
+      return 2;
+    }
+
+    const cappedFirstHours = Math.min(hours, 10);
+    const remainingHours = Math.max(0, hours - 10);
+    const totalBaseCoins = cappedFirstHours * 0.5 + remainingHours * 2;
+    return totalBaseCoins / hours;
   },
 
   parseWeek(weekStr) {
@@ -219,30 +280,29 @@ const projectStats = {
   },
 
   estimateReviewerAndVoterStats(totalCoins, week, hours) {
-    if (!totalCoins || !hours) return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
+    const typicalReviewerBonus = 2.5;
+    const typicalAvgStars = 3.0;
 
-    const stats = this.getStoredStats();
-
-    let baseRate;
-    if (week <= 4) {
-      baseRate = 2.0;
-    } else {
-      if (hours <= 10) {
-        baseRate = 0.5;
-      } else {
-        baseRate = (10 * 0.5 + (hours - 10) * 2.0) / hours;
-      }
+    if (!totalCoins || !hours) {
+      return { reviewerBonus: typicalReviewerBonus, avgVoterStars: typicalAvgStars };
     }
 
+    const stats = this.getStoredStats();
+    const baseRate = Math.max(0.1, this.calculateBaseCoinMultiplier(week, hours));
     const target = totalCoins / (baseRate * hours);
+
     const pastProjects = Object.values(stats).filter(p => p.week === week);
-    let historicalRbAvg = 1.5;
-    let historicalStarsAvg = 3.0;
+    let historicalRbAvg = typicalReviewerBonus;
+    let historicalStarsAvg = typicalAvgStars;
 
     if (pastProjects.length > 0) {
       historicalRbAvg = pastProjects.reduce((sum, p) => sum + p.reviewer_bonus, 0) / pastProjects.length;
       historicalStarsAvg = pastProjects.reduce((sum, p) => sum + p.avg_score, 0) / pastProjects.length;
     }
+
+  const rbBiasTarget = Math.min(3, Math.max(0.5, historicalRbAvg));
+  const starsBiasTarget = Math.min(5, Math.max(1, historicalStarsAvg));
+  const baseFlexCeiling = Math.min(2.7, Math.max(2.2, rbBiasTarget + 0.1));
 
     const validCombinations = [];
     const discreteVoterAverages = this.generateDiscreteVoterAverages();
@@ -252,32 +312,38 @@ const projectStats = {
         const calculatedTarget = rb * avgStars;
         const targetDeviation = Math.abs(calculatedTarget - target);
 
-        if (targetDeviation / target < 0.25) {
-          const rbBias = pastProjects.length > 0 ? historicalRbAvg : 1.5;
-          const starsBias = pastProjects.length > 0 ? historicalStarsAvg : 3.0;
+        if (target > 0 && targetDeviation / target < 0.25) {
+          const starFlexBoost = Math.max(0, avgStars - starsBiasTarget);
+          const effectiveCeiling = baseFlexCeiling + starFlexBoost * 0.3;
+          const lowStarPenaltyFactor = 1 + Math.max(0, starsBiasTarget - avgStars) * 0.7;
+          const lowStarOvershootPenalty = avgStars < starsBiasTarget + 0.2
+            ? Math.max(0, rb - Math.min(2.45, effectiveCeiling - 0.12)) * 0.32 * (1 + (starsBiasTarget - avgStars) * 0.85)
+            : 0;
 
-          const rbCorrection = (rb - rbBias) * -0.15;
-          const starsCorrection = (avgStars - starsBias) * 0.15;
-          const biasCorrection = rbCorrection + starsCorrection;
-          const adjustedDeviation = targetDeviation + biasCorrection;
+          const rbCorrection = (rb - rbBiasTarget) * -0.14;
+          const starsCorrection = (avgStars - starsBiasTarget) * 0.09;
+          const rbPenalty = Math.abs(rb - rbBiasTarget) * 0.09;
+          const starsPenalty = Math.abs(avgStars - starsBiasTarget) * 0.02;
+          const rbOvershootPenalty = Math.max(0, rb - effectiveCeiling) * 0.18 * lowStarPenaltyFactor;
+          const adjustedDeviation = targetDeviation + rbCorrection + starsCorrection + rbPenalty + starsPenalty + rbOvershootPenalty + lowStarOvershootPenalty;
+          const quality = 1 / (adjustedDeviation + 0.015);
 
           validCombinations.push({
             reviewerBonus: rb,
             avgVoterStars: avgStars,
             correlationDeviation: adjustedDeviation,
-            targetDeviation: targetDeviation,
-            quality: 1 / (targetDeviation + 0.01)
+            targetDeviation,
+            quality
           });
         }
       }
     }
 
     if (validCombinations.length === 0) {
-      return { reviewerBonus: 1.0, avgVoterStars: 3.0 };
+      return { reviewerBonus: rbBiasTarget, avgVoterStars: starsBiasTarget };
     }
 
     validCombinations.sort((a, b) => a.correlationDeviation - b.correlationDeviation);
-
     const topResults = validCombinations.slice(0, Math.min(3, validCombinations.length));
 
     let totalRb = 0;
@@ -293,9 +359,57 @@ const projectStats = {
     const avgReviewerBonus = totalRb / totalWeight;
     const avgVoterStars = totalStars / totalWeight;
 
-    const finalReviewerBonus = Math.round(avgReviewerBonus * 10) / 10;
-    const finalVoterStars = Math.round(avgVoterStars * 10) / 10;
+    const finalFlexCeiling = baseFlexCeiling + Math.max(0, avgVoterStars - starsBiasTarget) * 0.3;
+    const dampenedReviewerBonus = avgReviewerBonus > finalFlexCeiling
+      ? finalFlexCeiling + (avgReviewerBonus - finalFlexCeiling) * 0.38
+      : avgReviewerBonus;
+    const blendedReviewerBonus = (dampenedReviewerBonus * 0.51) + (rbBiasTarget * 0.49);
+    const blendedAvgStars = (avgVoterStars * 0.75) + (starsBiasTarget * 0.25);
 
+    let finalReviewerBonus = Math.min(3, Math.max(0.5, Math.round(blendedReviewerBonus * 10) / 10));
+    let finalVoterStars = Math.min(5, Math.max(1, Math.round(blendedAvgStars * 10) / 10));
+
+    if (totalCoins > 0 && baseRate > 0 && target > 0) {
+      const requiredProduct = target;
+      let currentProduct = finalReviewerBonus * finalVoterStars;
+
+      if (requiredProduct > 0) {
+        const diffRatio = Math.abs(currentProduct - requiredProduct) / requiredProduct;
+
+        if (diffRatio > 0.05) {
+          const rbToMatch = Math.min(3, Math.max(0.5, requiredProduct / finalVoterStars));
+          const lowStarStrictCeiling = finalVoterStars <= starsBiasTarget
+            ? Math.min(finalFlexCeiling, 2.35 + Math.max(0, finalVoterStars - 2.2) * 0.25)
+            : finalFlexCeiling;
+
+          if (finalVoterStars < starsBiasTarget + 0.15 && Math.abs(rbToMatch - finalReviewerBonus) > 0.2) {
+            const starsToMatch = Math.min(5, Math.max(1, requiredProduct / finalReviewerBonus));
+            finalVoterStars = Math.round(starsToMatch * 10) / 10;
+          } else {
+            finalReviewerBonus = Math.round(Math.min(lowStarStrictCeiling, rbToMatch) * 10) / 10;
+          }
+
+          currentProduct = finalReviewerBonus * finalVoterStars;
+          const updatedDiff = requiredProduct > 0 ? Math.abs(currentProduct - requiredProduct) / requiredProduct : 0;
+
+          if (updatedDiff > 0.05) {
+            const starsToMatch = Math.min(5, Math.max(1, requiredProduct / finalReviewerBonus));
+            finalVoterStars = Math.round(starsToMatch * 10) / 10;
+            if (finalVoterStars < starsBiasTarget) {
+              finalReviewerBonus = Math.min(finalReviewerBonus, lowStarStrictCeiling);
+            }
+          }
+        }
+      }
+    }
+
+    if (finalVoterStars < starsBiasTarget) {
+      const cappedByStars = 2.32 + Math.max(0, finalVoterStars - 2.2) * 0.25;
+      finalReviewerBonus = Math.min(finalReviewerBonus, Math.max(0.5, Math.min(cappedByStars, 2.55)));
+    }
+
+    finalReviewerBonus = Math.min(3, Math.max(0.5, Math.round(finalReviewerBonus * 10) / 10));
+    finalVoterStars = Math.min(5, Math.max(1, Math.round(finalVoterStars * 10) / 10));
 
     return {
       reviewerBonus: finalReviewerBonus,
@@ -309,55 +423,179 @@ const projectStats = {
   },
 
 
+  async resolveProjectHours(projectId, { fallbackHours = null, projectWeek = null, track = false } = {}) {
+    if (!projectId) {
+      return null;
+    }
+
+    let resolvedHours = Number.isFinite(fallbackHours) && fallbackHours > 0 ? fallbackHours : null;
+    let hasExistingTracking = false;
+
+    if (!resolvedHours) {
+      const storedStats = this.getStoredStats();
+      const storedEntry = storedStats[`project_${projectId}`];
+      if (storedEntry && Number.isFinite(storedEntry.hours) && storedEntry.hours > 0) {
+        resolvedHours = storedEntry.hours;
+        if (!projectWeek && Number.isFinite(storedEntry.week)) {
+          projectWeek = storedEntry.week;
+        }
+      }
+    }
+
+    if (!resolvedHours) {
+      const timeTracking = this.getStoredTimeTracking();
+      const trackingEntry = timeTracking?.[projectId];
+      if (trackingEntry && Array.isArray(trackingEntry.snapshots) && trackingEntry.snapshots.length > 0) {
+        const latestSnapshot = trackingEntry.snapshots[trackingEntry.snapshots.length - 1];
+        if (latestSnapshot && Number.isFinite(latestSnapshot.hours) && latestSnapshot.hours > 0) {
+          resolvedHours = latestSnapshot.hours;
+          if (!projectWeek && Number.isFinite(latestSnapshot.week)) {
+            projectWeek = latestSnapshot.week;
+          }
+          hasExistingTracking = true;
+        }
+      }
+    }
+
+    if (!resolvedHours) {
+      const shouldTrackDuringFetch = track && !hasExistingTracking;
+      let cacheEntry = this.sideloadCache.get(projectId);
+      if (cacheEntry instanceof Promise) {
+        cacheEntry = { promise: cacheEntry, tracked: false };
+        this.sideloadCache.set(projectId, cacheEntry);
+      }
+
+      if (!cacheEntry) {
+        const fetchPromise = this.sideloadProjectTime(projectId, { track: shouldTrackDuringFetch });
+        cacheEntry = { promise: fetchPromise, tracked: shouldTrackDuringFetch };
+        this.sideloadCache.set(projectId, cacheEntry);
+      }
+
+      const sideloadedHours = await cacheEntry.promise;
+      if (Number.isFinite(sideloadedHours) && sideloadedHours > 0) {
+        resolvedHours = sideloadedHours;
+        if (cacheEntry.tracked) {
+          hasExistingTracking = true;
+        } else if (track && !hasExistingTracking) {
+          const weekToSave = Number.isFinite(projectWeek) ? projectWeek : utils.getCurrentWeek();
+          this.trackProjectTime(projectId, sideloadedHours, weekToSave);
+          hasExistingTracking = true;
+          cacheEntry.tracked = true;
+        }
+      } else {
+        this.sideloadCache.delete(projectId);
+      }
+    }
+
+    if (track && Number.isFinite(resolvedHours) && resolvedHours > 0 && !hasExistingTracking) {
+      const weekToSave = Number.isFinite(projectWeek) ? projectWeek : utils.getCurrentWeek();
+      this.trackProjectTime(projectId, resolvedHours, weekToSave);
+    }
+
+    return Number.isFinite(resolvedHours) && resolvedHours > 0 ? resolvedHours : null;
+  },
+
+
   async extractProjectData(projectCard) {
+    if (!projectCard || !projectCard.id) {
+      return null;
+    }
+
     const projectId = projectCard.id.replace('project_', '');
+    if (!projectId) {
+      return null;
+    }
+
     const titleElement = projectCard.querySelector('.project-title');
     const badgeElement = projectCard.querySelector('.project-badge');
     const timeElement = projectCard.querySelector('.project-time');
     const valueElement = projectCard.querySelector('.project-status-indicator');
 
-    if (!titleElement || !timeElement || !valueElement) {
+    if (!titleElement || !valueElement) {
       return null;
     }
 
     const title = titleElement.textContent.trim();
     const week = badgeElement ? this.parseWeek(badgeElement.textContent) : 1;
-    const timeStr = timeElement.textContent.replace('Time spent: ', '');
-    const hours = this.parseTimeString(timeStr);
-    const valueStr = valueElement.textContent;
+    const valueStr = valueElement.textContent || '';
     const totalCoins = this.parseCoins(valueStr);
+    const avgScoreFromStatus = this.parseAverageScore(valueStr);
 
-    if (!hours || hours === 0) {
+    let fallbackHours = null;
+    if (timeElement) {
+      const timeStr = timeElement.textContent.replace('Time spent: ', '');
+      const parsedHours = this.parseTimeString(timeStr);
+      if (Number.isFinite(parsedHours) && parsedHours > 0) {
+        fallbackHours = parsedHours;
+      }
+    }
+
+    const shouldTrackTime = totalCoins <= 0;
+
+  const resolvedHours = await this.resolveProjectHours(projectId, {
+      fallbackHours,
+      projectWeek: week,
+      track: shouldTrackTime
+    });
+
+    if (!Number.isFinite(resolvedHours) || resolvedHours <= 0) {
       return null;
     }
 
-    let stats = this.getStoredStats();
+  const stats = this.getStoredStats();
 
     let estimates = { avgVoterStars: 3.0, reviewerBonus: 2.0 };
     let coinsPerHour = 0;
 
     if (totalCoins > 0) {
-      estimates = this.estimateReviewerAndVoterStats(totalCoins, week, hours);
-      coinsPerHour = this.calculateEfficiency(totalCoins, hours);
+      estimates = this.estimateReviewerAndVoterStats(totalCoins, week, resolvedHours);
+      coinsPerHour = this.calculateEfficiency(totalCoins, resolvedHours);
+    }
+
+    const baseMultiplier = this.calculateBaseCoinMultiplier(week, resolvedHours);
+    const hasValidAvgScore = Number.isFinite(avgScoreFromStatus) && avgScoreFromStatus > 0;
+    let avgScore = hasValidAvgScore ? avgScoreFromStatus : estimates.avgVoterStars;
+    let reviewerBonus = estimates.reviewerBonus;
+
+    if (totalCoins > 0 && hasValidAvgScore && baseMultiplier > 0) {
+      const computedBonus = totalCoins / (resolvedHours * baseMultiplier * avgScoreFromStatus);
+      if (Number.isFinite(computedBonus) && computedBonus > 0) {
+        if (computedBonus > 3) {
+          reviewerBonus = 3;
+          const recalculatedAvg = totalCoins / (resolvedHours * baseMultiplier * reviewerBonus);
+          if (Number.isFinite(recalculatedAvg) && recalculatedAvg > 0) {
+            avgScore = Math.min(5, Math.max(avgScoreFromStatus, Math.round(recalculatedAvg * 100) / 100));
+          } else {
+            avgScore = avgScoreFromStatus;
+          }
+        } else {
+          reviewerBonus = Math.max(0.5, Math.min(3, Math.round(computedBonus * 100) / 100));
+          avgScore = avgScoreFromStatus;
+        }
+      }
+    }
+
+    if (totalCoins > 0 && !coinsPerHour) {
+      coinsPerHour = this.calculateEfficiency(totalCoins, resolvedHours);
     }
 
     const projectData = {
       projectId,
       title,
       week,
-      hours,
+      hours: resolvedHours,
       totalCoins,
-      avgScore: estimates.avgVoterStars,
-      reviewerBonus: estimates.reviewerBonus,
+      avgScore,
+      reviewerBonus,
       coinsPerHour
     };
 
     if (totalCoins > 0) {
       stats[`project_${projectId}`] = {
-        avg_score: estimates.avgVoterStars,
-        reviewer_bonus: estimates.reviewerBonus,
-        week: week,
-        hours: parseFloat(hours.toFixed(2)),
+        avg_score: avgScore,
+        reviewer_bonus: reviewerBonus,
+        week,
+        hours: parseFloat(resolvedHours.toFixed(2)),
         total_coins: totalCoins,
         coins_per_hour: parseFloat(coinsPerHour.toFixed(2))
       };
@@ -481,7 +719,7 @@ const projectStats = {
     } else if (hours <= 10) {
       maxEfficiency = 7.5;
     } else {
-      const maxFirst10 = 7.5; 
+      const maxFirst10 = 7.5;
       const maxAfter10 = 30;
       maxEfficiency = (10 * maxFirst10 + (hours - 10) * maxAfter10) / hours;
     }
@@ -559,7 +797,7 @@ const projectStats = {
     this.saveTimeTracking(timeTracking);
   },
 
-  async sideloadProjectTime(projectId) {
+  async sideloadProjectTime(projectId, { track = true } = {}) {
     try {
       const response = await fetch(`https://siege.hackclub.com/armory/${projectId}`, {
         headers: {
@@ -588,8 +826,9 @@ const projectStats = {
         const week = this.parseWeek(titleStr);
 
         if (hours > 0) {
-          this.trackProjectTime(projectId, hours, week);
-
+          if (track) {
+            this.trackProjectTime(projectId, hours, week);
+          }
           return hours;
         }
       }
@@ -669,7 +908,8 @@ const goals = {
     const stored = localStorage.getItem('siege-utils-goals');
     return stored ? JSON.parse(stored) : [];
   },
-
+  sideloadCache: new Map(),
+  
   saveGoals(goals) {
     localStorage.setItem('siege-utils-goals', JSON.stringify(goals));
   },
@@ -2738,6 +2978,10 @@ async function render() {
 }
 
 async function init() {
+  if (window.location.pathname.startsWith('/market')) {
+    ensureMarketDialogueCleanup();
+  }
+
   if (!window.location.pathname.startsWith('/market') || isActive) {
     return;
   }
@@ -2940,7 +3184,6 @@ async function enhanceProjectCards() {
       const projectData = await projectStats.extractProjectData(card);
 
       if (projectData) {
-        const currentWeek = utils.getCurrentWeek();
         const statusElement = card.querySelector('.project-status-indicator');
         const statusText = statusElement ? statusElement.textContent : 'NO STATUS ELEMENT';
         const hasCoins = statusText.includes('🪙') ||
@@ -2950,18 +3193,6 @@ async function enhanceProjectCards() {
                          /\d+\s*coins?/i.test(statusText);
 
         const isUnshipped = !hasCoins;
-
-        if (isUnshipped) {
-          if (projectData.week === currentWeek) {
-            const sideloadedHours = await projectStats.sideloadProjectTime(projectData.projectId);
-
-            if (sideloadedHours && sideloadedHours > 0) {
-              projectData.hours = sideloadedHours;
-            }
-          } else {
-            projectStats.trackProjectTime(projectData.projectId, projectData.hours, projectData.week);
-          }
-        }
 
         const normalizedHours = Number.isFinite(projectData.hours) ? projectData.hours : 0;
         const normalizedCoins = Number.isFinite(projectData.totalCoins) ? projectData.totalCoins : 0;
@@ -3149,6 +3380,7 @@ async function initProjectStats() {
 if (typeof window !== 'undefined') {
   let lastPath = window.location.pathname;
   let navigationTimeout = null;
+  const MARKET_DIALOGUE_STYLE_ID = 'siege-utils-market-dialogue-hide';
 
   async function initKeepEnhancements() {
     if (window.location.pathname !== '/keep') {
@@ -4219,13 +4451,97 @@ ${legendMarkup}
       }
   }
 
+  function removeMarketDialogueElements(root = document) {
+    if (!root || typeof root.querySelectorAll !== 'function') {
+      return;
+    }
+
+    const nodes = root.querySelectorAll('#market-dialogue, .market-dialogue');
+    nodes.forEach((node) => {
+      if (node && node.parentNode) {
+        node.parentNode.removeChild(node);
+      }
+    });
+  }
+
+  function ensureMarketDialogueCleanup() {
+    if (!document.getElementById(MARKET_DIALOGUE_STYLE_ID)) {
+      const style = document.createElement('style');
+      style.id = MARKET_DIALOGUE_STYLE_ID;
+      style.textContent = `#market-dialogue, .market-dialogue { display: none !important; }`;
+      document.head.appendChild(style);
+    }
+
+    removeMarketDialogueElements(document);
+
+    if (marketDialogueObserver || !document.body) {
+      return;
+    }
+
+    marketDialogueObserver = new MutationObserver((mutations) => {
+      let shouldClean = false;
+
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          mutation.addedNodes.forEach((node) => {
+            if (!node || node.nodeType !== 1) {
+              return;
+            }
+
+            if (node.id === 'market-dialogue') {
+              shouldClean = true;
+            } else if (node.classList && node.classList.contains('market-dialogue')) {
+              shouldClean = true;
+            } else if (typeof node.querySelector === 'function' && node.querySelector('#market-dialogue, .market-dialogue')) {
+              shouldClean = true;
+            }
+          });
+        } else if (mutation.type === 'attributes' && mutation.target) {
+          const target = mutation.target;
+          if (target.id === 'market-dialogue' || (target.classList && target.classList.contains('market-dialogue'))) {
+            shouldClean = true;
+          }
+        }
+
+        if (shouldClean) {
+          break;
+        }
+      }
+
+      if (shouldClean) {
+        removeMarketDialogueElements(document);
+      }
+    });
+
+    marketDialogueObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'id']
+    });
+  }
+
+  function teardownMarketDialogueCleanup() {
+    if (marketDialogueObserver) {
+      marketDialogueObserver.disconnect();
+      marketDialogueObserver = null;
+    }
+
+    const styleEl = document.getElementById(MARKET_DIALOGUE_STYLE_ID);
+    if (styleEl && styleEl.parentNode) {
+      styleEl.parentNode.removeChild(styleEl);
+    }
+  }
+
   async function enhanceShopPage() {
     if (window.location.pathname !== '/shop') return;
+
+    ensureMarketDialogueCleanup();
 
     const shopItems = await shopUtils.getShopItems();
 
     if (shopItems) {
-      window.siegeUtilsShopItems = shopItems
+      window.siegeUtilsShopItems = shopItems;
     } 
   }
 
@@ -4306,6 +4622,10 @@ ${legendMarkup}
 
         if (window.location.pathname === '/shop') {
           enhanceShopPage();
+        } else if (window.location.pathname.startsWith('/market')) {
+          ensureMarketDialogueCleanup();
+        } else {
+          teardownMarketDialogueCleanup();
         }
 
         if (window.location.pathname === '/castle') {
@@ -4351,6 +4671,10 @@ ${legendMarkup}
       }
       if (window.location.pathname === '/shop') {
         enhanceShopPage();
+      } else if (window.location.pathname.startsWith('/market')) {
+        ensureMarketDialogueCleanup();
+      } else {
+        teardownMarketDialogueCleanup();
       }
       if (window.location.pathname === '/castle') {
         addCastleTooltips();
@@ -4364,6 +4688,10 @@ ${legendMarkup}
     }
     if (window.location.pathname === '/shop') {
       enhanceShopPage();
+    } else if (window.location.pathname.startsWith('/market')) {
+      ensureMarketDialogueCleanup();
+    } else {
+      teardownMarketDialogueCleanup();
     }
     if (window.location.pathname === '/castle') {
       addCastleTooltips();
