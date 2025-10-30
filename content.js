@@ -404,8 +404,22 @@ const projectStats = {
     }
 
     if (finalVoterStars < starsBiasTarget) {
-      const cappedByStars = 2.32 + Math.max(0, finalVoterStars - 2.2) * 0.25;
-      finalReviewerBonus = Math.min(finalReviewerBonus, Math.max(0.5, Math.min(cappedByStars, 2.55)));
+      const voterGap = Math.max(0, starsBiasTarget - finalVoterStars);
+      const lowStarAnchor = 2.32 + Math.max(0, finalVoterStars - 2.2) * 0.3;
+      const anchorBlend = Math.min(0.85, 0.45 + voterGap * 0.18);
+      finalReviewerBonus = (lowStarAnchor * anchorBlend) + (finalReviewerBonus * (1 - anchorBlend));
+
+      if (finalVoterStars <= 2.6) {
+        const starGap = 2.6 - finalVoterStars;
+        const softCeiling = lowStarAnchor + 0.25 + Math.max(0, finalVoterStars - 2.2) * 0.2;
+        if (finalReviewerBonus > softCeiling) {
+          const overshoot = finalReviewerBonus - softCeiling;
+          const bleedThrough = Math.max(0.15, 0.4 - starGap * 0.6);
+          finalReviewerBonus = softCeiling + overshoot * bleedThrough;
+        }
+      }
+
+      finalReviewerBonus = Math.min(finalReviewerBonus, 2.75);
     }
 
     finalReviewerBonus = Math.min(3, Math.max(0.5, Math.round(finalReviewerBonus * 10) / 10));
@@ -3591,7 +3605,7 @@ if (typeof window !== 'undefined') {
             <div class="home-col">
               <div class="home-list home-list-center">
                 <div class="home-row" style="justify-content: space-between; padding: 0.75rem;">
-                  <span>Total pillaging since Week 1:</span>
+                  <span>Total time under the sun and moon since Week 1:</span>
                   <strong>${utils.formatHours(totalHours)}</strong>
                 </div>
                 <div class="home-row" style="justify-content: space-between; padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.1);">
