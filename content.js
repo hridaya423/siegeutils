@@ -4825,10 +4825,27 @@ function initSimpleVotingInterface() {
     let votesData = null;
     let ballotId = null;
 
+    const assignBallotId = (candidate) => {
+      if (ballotId !== null && ballotId !== undefined) {
+        return;
+      }
+      if (candidate === null || candidate === undefined) {
+        return;
+      }
+      const raw = String(candidate).trim().replace(/^['"`]/, '').replace(/['"`]$/, '');
+      if (!raw) {
+        return;
+      }
+      ballotId = /^\d+$/.test(raw) ? parseInt(raw, 10) : raw;
+    };
+
     for (const script of scripts) {
       const content = script.textContent;
+      if (!content) {
+        continue;
+      }
 
-      if (content && (content.includes('const votes =') || content.includes('votingManager.votes ='))) {
+      if (!votesData && (content.includes('const votes =') || content.includes('votingManager.votes ='))) {
         const votesMatch = content.match(/(?:const votes|votingManager\.votes)\s*=\s*(\[[\s\S]*?\]);/);
         if (votesMatch) {
           try {
@@ -4837,28 +4854,65 @@ function initSimpleVotingInterface() {
             console.error('[Siege Utils] Failed to parse votes data:', e);
           }
         }
+      }
 
-        if (!ballotId) {
-          const scriptMatch = content.match(/const\s+currentBallotId\s*=\s*(\d+)/);
-          if (scriptMatch) {
-            ballotId = parseInt(scriptMatch[1]);
-          }
+      if (ballotId === null || ballotId === undefined) {
+        const scriptMatch = content.match(/currentBallot(?:Id|ID|UUID|Uuid)\s*=\s*(?:['"`])?([A-Za-z0-9_-]+)/);
+        if (scriptMatch) {
+          assignBallotId(scriptMatch[1]);
+        }
+      }
+
+      if (ballotId === null || ballotId === undefined) {
+        const jsonMatch = content.match(/"ballot_id"\s*:\s*(\d+)/);
+        if (jsonMatch) {
+          assignBallotId(jsonMatch[1]);
+        }
+      }
+
+      if (ballotId === null || ballotId === undefined) {
+        const uuidMatch = content.match(/ballot(?:Id|ID|UUID|Uuid)\s*:\s*(?:['"`])([A-Za-z0-9_-]+)(?:['"`])/);
+        if (uuidMatch) {
+          assignBallotId(uuidMatch[1]);
         }
       }
     }
 
-    if (!ballotId) {
-      const urlMatch = window.location.pathname.match(/\/great-hall\/(\d+)/);
-      if (urlMatch) {
-        ballotId = parseInt(urlMatch[1]);
+    if (ballotId === null || ballotId === undefined) {
+      const metaBallot = document.querySelector('meta[name="current-ballot-id"]');
+      if (metaBallot && metaBallot.content) {
+        assignBallotId(metaBallot.content);
       }
     }
 
-    if (!ballotId && votesData && votesData.length > 0) {
-      if (votesData[0].ballot_id) {
-        ballotId = votesData[0].ballot_id;
-      } else if (votesData[0].ballotId) {
-        ballotId = votesData[0].ballotId;
+    if (ballotId === null || ballotId === undefined) {
+      const ballotElement = document.querySelector('[data-ballot-id]');
+      if (ballotElement) {
+        assignBallotId(ballotElement.dataset?.ballotId || ballotElement.getAttribute('data-ballot-id'));
+      }
+    }
+
+    if (ballotId === null || ballotId === undefined) {
+      const urlMatch = window.location.pathname.match(/\/great-hall\/([A-Za-z0-9_-]+)/);
+      if (urlMatch) {
+        assignBallotId(urlMatch[1]);
+      }
+    }
+
+    if ((ballotId === null || ballotId === undefined) && votesData && votesData.length > 0) {
+      for (const vote of votesData) {
+        if (!vote) {
+          continue;
+        }
+        assignBallotId(
+          vote.ballot_id ??
+          vote.ballotId ??
+          (vote.ballot && (vote.ballot.id ?? vote.ballot.uuid)) ??
+          (vote.meta && vote.meta.ballot_id)
+        );
+        if (ballotId !== null && ballotId !== undefined) {
+          break;
+        }
       }
     }
 

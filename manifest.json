@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Siege Utils",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Enhance the Siege website experience with better UI & features",
   "permissions": [
     "activeTab",
