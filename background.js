@@ -152,6 +152,117 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'extractShopItems') {
     const executeScriptCode = `
       (function() {
+        const shopItemCards = document.querySelectorAll('.shop-item-card');
+        if (shopItemCards.length > 0) {
+          try {
+            const allItems = [];
+            let itemId = 1;
+
+            const marketContainer = document.querySelector('.market-container');
+            const descriptionsMap = new Map();
+
+            const decodeHTML = (html) => {
+              const txt = document.createElement('textarea');
+              txt.innerHTML = html;
+              return txt.value;
+            };
+
+            if (marketContainer) {
+              const cosmeticsData = marketContainer.getAttribute('data-market-purchasable-cosmetics-value');
+              const physicalData = marketContainer.getAttribute('data-market-purchasable-physical-items-value');
+
+              try {
+                if (cosmeticsData) {
+                  const decoded = decodeHTML(cosmeticsData);
+                  const cosmetics = JSON.parse(decoded);
+                  cosmetics.forEach(item => {
+                    if (item.name && item.description) {
+                      descriptionsMap.set(item.name, item.description);
+                    }
+                  });
+                }
+
+                if (physicalData) {
+                  const decoded = decodeHTML(physicalData);
+                  const physical = JSON.parse(decoded);
+                  physical.forEach(item => {
+                    if (item.name && item.description) {
+                      descriptionsMap.set(item.name, item.description);
+                    }
+                  });
+                }
+              } catch (e) {
+                console.error('[Siege Utils] Failed to parse descriptions:', e);
+              }
+            }
+
+            const scripts = Array.from(document.querySelectorAll('script'));
+            for (const script of scripts) {
+              const content = script.textContent || script.innerText;
+              if (content) {
+                const mercenaryMatch = content.match(/(?:mercenary|Mercenary).*?description["\s:]+["']([^"']+)["']/i);
+                if (mercenaryMatch && mercenaryMatch[1] && !descriptionsMap.has('Mercenary')) {
+                  descriptionsMap.set('Mercenary', decodeHTML(mercenaryMatch[1]));
+                }
+
+                const orangeMatch = content.match(/(?:orange.*?meeple|Unlock Orange Meeple).*?description["\s:]+["']([^"']+)["']/i);
+                if (orangeMatch && orangeMatch[1] && !descriptionsMap.has('Unlock Orange Meeple')) {
+                  descriptionsMap.set('Unlock Orange Meeple', decodeHTML(orangeMatch[1]));
+                }
+              }
+            }
+
+            shopItemCards.forEach(card => {
+              const nameEl = card.querySelector('.shop-item-name');
+              const costEl = card.querySelector('.shop-item-cost');
+              const imgEl = card.querySelector('.shop-item-image');
+              const stockEl = card.querySelector('.shop-item-stock');
+
+              if (!nameEl || !costEl || !imgEl) return;
+
+              const title = nameEl.textContent.trim();
+              const costText = costEl.textContent.trim();
+              const price = parseInt(costText.match(/\\d+/)?.[0] || '0');
+              const image = imgEl.getAttribute('src');
+              const alt = imgEl.getAttribute('alt');
+
+              const isMercenary = title === 'Mercenary';
+              const isCosmetic = imgEl.classList.contains('cosmetic');
+              const isPhysical = imgEl.classList.contains('physical');
+              const isDisabled = card.classList.contains('disabled');
+
+              const item = {
+                id: itemId++,
+                title,
+                price,
+                image,
+                description: descriptionsMap.get(title) || '',
+                oneTime: !isMercenary,
+                isCosmetic: isCosmetic,
+                isPhysicalItem: isPhysical,
+                disabled: isDisabled
+              };
+
+              if (stockEl) {
+                const stockMatch = stockEl.textContent.match(/(\\d+)\\/(\\d+)/);
+                if (stockMatch) {
+                  item.currentStock = parseInt(stockMatch[1]);
+                  item.maxPerWeek = parseInt(stockMatch[2]);
+                  item.priceIncreases = true;
+                }
+              }
+
+              allItems.push(item);
+            });
+
+            const shopItems = { other: allItems };
+            return JSON.stringify(shopItems);
+          } catch (e) {
+            console.error('[Siege Utils] Failed to parse shop items from DOM:', e);
+            return null;
+          }
+        }
+
         const scripts = Array.from(document.querySelectorAll('script'));
         for (const script of scripts) {
           const content = script.textContent || script.innerText;
@@ -172,6 +283,117 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
           target: { tabId: sender.tab.id },
           world: 'MAIN',
           func: () => {
+            const shopItemCards = document.querySelectorAll('.shop-item-card');
+            if (shopItemCards.length > 0) {
+              try {
+                const allItems = [];
+                let itemId = 1;
+
+                const marketContainer = document.querySelector('.market-container');
+                const descriptionsMap = new Map();
+
+                const decodeHTML = (html) => {
+                  const txt = document.createElement('textarea');
+                  txt.innerHTML = html;
+                  return txt.value;
+                };
+
+                if (marketContainer) {
+                  const cosmeticsData = marketContainer.getAttribute('data-market-purchasable-cosmetics-value');
+                  const physicalData = marketContainer.getAttribute('data-market-purchasable-physical-items-value');
+
+                  try {
+                    if (cosmeticsData) {
+                      const decoded = decodeHTML(cosmeticsData);
+                      const cosmetics = JSON.parse(decoded);
+                      cosmetics.forEach(item => {
+                        if (item.name && item.description) {
+                          descriptionsMap.set(item.name, item.description);
+                        }
+                      });
+                    }
+
+                    if (physicalData) {
+                      const decoded = decodeHTML(physicalData);
+                      const physical = JSON.parse(decoded);
+                      physical.forEach(item => {
+                        if (item.name && item.description) {
+                          descriptionsMap.set(item.name, item.description);
+                        }
+                      });
+                    }
+                  } catch (e) {
+                    console.error('[Siege Utils] Failed to parse descriptions:', e);
+                  }
+                }
+
+                const scripts = Array.from(document.querySelectorAll('script'));
+                for (const script of scripts) {
+                  const content = script.textContent || script.innerText;
+                  if (content) {
+                    const mercenaryMatch = content.match(/(?:mercenary|Mercenary).*?description["\s:]+["']([^"']+)["']/i);
+                    if (mercenaryMatch && mercenaryMatch[1] && !descriptionsMap.has('Mercenary')) {
+                      descriptionsMap.set('Mercenary', decodeHTML(mercenaryMatch[1]));
+                    }
+
+                    const orangeMatch = content.match(/(?:orange.*?meeple|Unlock Orange Meeple).*?description["\s:]+["']([^"']+)["']/i);
+                    if (orangeMatch && orangeMatch[1] && !descriptionsMap.has('Unlock Orange Meeple')) {
+                      descriptionsMap.set('Unlock Orange Meeple', decodeHTML(orangeMatch[1]));
+                    }
+                  }
+                }
+
+                shopItemCards.forEach(card => {
+                  const nameEl = card.querySelector('.shop-item-name');
+                  const costEl = card.querySelector('.shop-item-cost');
+                  const imgEl = card.querySelector('.shop-item-image');
+                  const stockEl = card.querySelector('.shop-item-stock');
+
+                  if (!nameEl || !costEl || !imgEl) return;
+
+                  const title = nameEl.textContent.trim();
+                  const costText = costEl.textContent.trim();
+                  const price = parseInt(costText.match(/\d+/)?.[0] || '0');
+                  const image = imgEl.getAttribute('src');
+                  const alt = imgEl.getAttribute('alt');
+
+                  const isMercenary = title === 'Mercenary';
+                  const isCosmetic = imgEl.classList.contains('cosmetic');
+                  const isPhysical = imgEl.classList.contains('physical');
+                  const isDisabled = card.classList.contains('disabled');
+
+                  const item = {
+                    id: itemId++,
+                    title,
+                    price,
+                    image,
+                    description: descriptionsMap.get(title) || '',
+                    oneTime: !isMercenary,
+                    isCosmetic: isCosmetic,
+                    isPhysicalItem: isPhysical,
+                    disabled: isDisabled
+                  };
+
+                  if (stockEl) {
+                    const stockMatch = stockEl.textContent.match(/(\d+)\/(\d+)/);
+                    if (stockMatch) {
+                      item.currentStock = parseInt(stockMatch[1]);
+                      item.maxPerWeek = parseInt(stockMatch[2]);
+                      item.priceIncreases = true;
+                    }
+                  }
+
+                  allItems.push(item);
+                });
+
+                const shopItems = { other: allItems };
+                return JSON.stringify(shopItems);
+              } catch (e) {
+                console.error('[Siege Utils] Failed to parse shop items from DOM:', e);
+                return null;
+              }
+            }
+
             const scripts = Array.from(document.querySelectorAll('script'));
             for (const script of scripts) {
               const content = script.textContent || script.innerText;
@@ -191,20 +413,24 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       if (result) {
         try {
-          const shopItemsStr = result;
-          const shopItems = parseJSObject(shopItemsStr);
+          let shopItems;
+          if (result.startsWith('{') && (result.includes('"other"') || result.includes('"cosmetics"'))) {
+            shopItems = JSON.parse(result);
+          } else {
+            shopItems = parseJSObject(result);
+          }
 
-          console.log('Successfully parsed shop items:', Object.keys(shopItems));
+          console.log('[Siege Utils] Successfully parsed shop items:', Object.keys(shopItems));
           sendResponse({ success: true, data: shopItems });
         } catch (parseError) {
-          console.error('Failed to parse shop items:', parseError.message);
+          console.error('[Siege Utils] Failed to parse shop items:', parseError.message);
           sendResponse({ success: false, error: 'Failed to parse: ' + parseError.message });
         }
       } else {
-        sendResponse({ success: false, error: 'allShopItems not found in page scripts' });
+        sendResponse({ success: false, error: 'Shop items not found in page' });
       }
     }).catch(error => {
-      console.error('Script execution failed:', error);
+      console.error('[Siege Utils] Script execution failed:', error);
       sendResponse({ success: false, error: error.message });
     });
 

@@ -27,6 +27,13 @@ let userGoals = [];
 let isRouteCollapsed = true;  
 let currentRouteItem = null;
 let marketDialogueObserver = null;
+let spookyJumpScareTimeout = null;
+let hasShownSpookyJumpScare = false;
+let spookyJumpScareCount = 0;
+const MAX_SPOOKY_JUMPSCARES = 3;
+let spookyAudioUnlocked = false;
+let spookyBackgroundAudio = null;
+let spookyScreamAudio = null;
 
 const utils = {
   getCSRFToken() {
@@ -652,7 +659,7 @@ const projectStats = {
           transition: all 160ms ease;
         ">
           <div style="position: relative; z-index: 1; text-align: center;">
-            <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; color: #3b82f6;">
+            <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; color: #60a5fa;">
               ~${projectedCoins} 🪙 projected
             </div>
             <div style="font-size: 1rem; margin-bottom: 0.25rem;">
@@ -1651,7 +1658,7 @@ const goals = {
             <span style="font-size: 1.3rem; font-weight: 600;">
               ${utils.formatCoins(progress.current + projectionData.projectedFromUnshipped)} / ${utils.formatCoins(progress.total)}
             </span>
-            <span style="font-size: 1.1rem; font-weight: 500; color: #3b82f6;">${projectionData.projectedPercentage}%</span>
+            <span style="font-size: 1.1rem; font-weight: 500; color: #60a5fa;">${projectionData.projectedPercentage}%</span>
           </div>
           <div style="
             width: 100%;
@@ -4344,7 +4351,7 @@ ${legendMarkup}
                   <div style="font-size: 0.85rem; font-weight: 600; color: #1e40af;">
                     Keep schedule across weeks
                   </div>
-                  <div style="font-size: 0.7rem; color: #3b82f6; margin-top: 0.15rem;">
+                  <div style="font-size: 0.7rem; color: #60a5fa; margin-top: 0.15rem;">
                     If unchecked, schedule resets every week
                   </div>
                 </div>
@@ -4632,6 +4639,8 @@ ${legendMarkup}
       navigationTimeout = setTimeout(() => {
         if (window.location.pathname.startsWith('/market')) {
           init();
+        } else {
+          isActive = false;
         }
 
         if (window.location.pathname === '/shop') {
@@ -4720,11 +4729,13 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
   const existingCustomStyle = document.getElementById('siege-utils-custom');
   const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
-  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal') {
+  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal' || theme === 'spooky') {
 
     let cssFile = 'catppuccin.css';
     if (theme === 'signal') {
       cssFile = 'signal.css';
+    } else if (theme === 'spooky') {
+      cssFile = 'spooky.css';
     }
 
     const cssUrl = browserAPI.runtime.getURL(cssFile);
@@ -4748,11 +4759,18 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
     }
 
     toggleHues(disableHues);
+    if (theme === 'spooky') {
+      queueSpookyJumpScare();
+      showSpookyAudioPrompt();
+    } else {
+      teardownSpookyJumpScare();
+    }
   } else {
     if (existingThemeLink) existingThemeLink.remove();
     if (existingCustomStyle) existingCustomStyle.remove();
     if (existingHueStyle) existingHueStyle.remove();
     document.body.classList.remove('no-hues');
+    teardownSpookyJumpScare();
   }
 }
 
@@ -4809,6 +4827,726 @@ function toggleHues(disable) {
   }
 }
 
+function ensureSpookyJumpScareStyle() {
+  if (document.getElementById('siege-spooky-jumpscare-style')) {
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = 'siege-spooky-jumpscare-style';
+  style.textContent = `
+    @keyframes siege-spooky-jumpscare-pop {
+      0% {
+        transform: scale(0.1) rotate(0deg);
+        opacity: 0;
+        filter: blur(20px) brightness(0);
+      }
+      5% {
+        transform: scale(2.5) rotate(-8deg);
+        opacity: 1;
+        filter: blur(0px) brightness(2);
+      }
+      15% {
+        transform: scale(1.8) rotate(5deg);
+        filter: blur(0px) brightness(1.5);
+      }
+      25% {
+        transform: scale(2.2) rotate(-3deg);
+        filter: blur(0px) brightness(1.8);
+      }
+      100% {
+        transform: scale(2) rotate(0deg);
+        opacity: 1;
+        filter: blur(0px) brightness(1.5);
+      }
+    }
+
+    @keyframes siege-spooky-shake {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      10% { transform: translate(-8px, 8px) rotate(-2deg); }
+      20% { transform: translate(8px, -8px) rotate(2deg); }
+      30% { transform: translate(-8px, -8px) rotate(-1deg); }
+      40% { transform: translate(8px, 8px) rotate(1deg); }
+      50% { transform: translate(-8px, 8px) rotate(-2deg); }
+      60% { transform: translate(8px, -8px) rotate(2deg); }
+      70% { transform: translate(-8px, -8px) rotate(-1deg); }
+      80% { transform: translate(8px, 8px) rotate(1deg); }
+      90% { transform: translate(-4px, 4px) rotate(0deg); }
+    }
+
+    @keyframes siege-spooky-glitch {
+      0%, 100% { clip-path: inset(0 0 0 0); }
+      20% { clip-path: inset(20% 0 30% 0); transform: translateX(-5px); }
+      40% { clip-path: inset(50% 0 10% 0); transform: translateX(5px); }
+      60% { clip-path: inset(10% 0 60% 0); transform: translateX(-3px); }
+      80% { clip-path: inset(40% 0 20% 0); transform: translateX(3px); }
+    }
+
+    #siege-spooky-jumpscare {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      opacity: 0;
+      background: rgba(0, 0, 0, 0);
+      transition: none;
+      z-index: 2147483646;
+      animation: siege-spooky-shake 0.4s ease-in-out;
+    }
+
+    #siege-spooky-jumpscare.is-visible {
+      opacity: 1;
+      background: rgba(0, 0, 0, 0.98);
+    }
+
+    #siege-spooky-jumpscare.is-fading {
+      opacity: 0;
+      transition: opacity 800ms ease;
+    }
+
+    #siege-spooky-jumpscare .siege-spooky-jumpscare-inner {
+      font-size: clamp(6rem, 20vw, 18rem);
+      color: #ff0000;
+      text-shadow:
+        0 0 40px rgba(255, 0, 0, 1),
+        0 0 80px rgba(255, 0, 0, 0.8),
+        0 0 120px rgba(150, 0, 0, 0.6),
+        0 5px 30px rgba(0, 0, 0, 0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      transform-origin: center;
+      letter-spacing: 0.15em;
+      font-weight: 900;
+      filter: drop-shadow(0 0 40px rgba(255, 0, 0, 0.8));
+      font-family: 'Impact', 'Arial Black', sans-serif;
+    }
+
+    #siege-spooky-jumpscare .siege-spooky-jumpscare-emoji {
+      font-size: clamp(8rem, 25vw, 22rem);
+      filter: drop-shadow(0 0 60px rgba(255, 0, 0, 0.9));
+      animation: siege-spooky-glitch 0.2s infinite;
+    }
+
+    #siege-spooky-jumpscare .siege-spooky-jumpscare-text {
+      font-size: clamp(4rem, 15vw, 12rem);
+      color: #ff0000;
+      text-shadow:
+        0 0 30px rgba(255, 0, 0, 1),
+        0 0 60px rgba(255, 0, 0, 0.8),
+        3px 3px 0 #000,
+        -3px -3px 0 #000,
+        3px -3px 0 #000,
+        -3px 3px 0 #000;
+      animation: siege-spooky-glitch 0.15s infinite;
+      letter-spacing: 0.2em;
+    }
+
+    #siege-spooky-jumpscare::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(255, 0, 0, 0.03) 2px,
+          rgba(255, 0, 0, 0.03) 4px
+        );
+      pointer-events: none;
+      animation: siege-spooky-glitch 0.3s infinite;
+    }
+
+    #siege-spooky-jumpscare::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle, rgba(255, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0) 70%);
+      opacity: 1;
+      animation: pulse 0.1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { opacity: 0.6; }
+      to { opacity: 1; }
+    }
+
+    @keyframes blood-drip {
+      0% {
+        transform: translateY(-100vh) scaleY(0);
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(100vh) scaleY(3);
+        opacity: 0.8;
+      }
+    }
+
+    @keyframes spider-crawl {
+      0% {
+        transform: translateY(-100px) rotate(0deg);
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0.8;
+      }
+    }
+
+    @keyframes static-noise {
+      0%, 100% {
+        background-position: 0 0;
+        opacity: 0.1;
+      }
+      50% {
+        background-position: 100% 100%;
+        opacity: 0.3;
+      }
+    }
+
+    @keyframes intense-shake {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      10% { transform: translate(-15px, 10px) rotate(-3deg); }
+      20% { transform: translate(15px, -15px) rotate(3deg); }
+      30% { transform: translate(-10px, -12px) rotate(-2deg); }
+      40% { transform: translate(12px, 15px) rotate(2deg); }
+      50% { transform: translate(-15px, 10px) rotate(-3deg); }
+      60% { transform: translate(15px, -10px) rotate(3deg); }
+      70% { transform: translate(-12px, -15px) rotate(-2deg); }
+      80% { transform: translate(10px, 12px) rotate(2deg); }
+      90% { transform: translate(-8px, 8px) rotate(0deg); }
+    }
+
+    .siege-blood-splatter {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 30% 40%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.7) 50%, transparent 70%),
+        radial-gradient(circle at 70% 60%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.6) 50%, transparent 70%),
+        radial-gradient(circle at 50% 20%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.8) 50%, transparent 70%);
+      opacity: 0;
+      animation: blood-appear 0.3s ease-out forwards;
+      pointer-events: none;
+    }
+
+    @keyframes blood-appear {
+      0% {
+        opacity: 0;
+        transform: scale(0.5);
+      }
+      50% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0.9;
+        transform: scale(1.5);
+      }
+    }
+
+    .siege-blood-splatter::before {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 200%;
+      top: 0;
+      left: 0;
+      background: linear-gradient(180deg, transparent 0%, rgba(139, 0, 0, 0.9) 10%, transparent 100%);
+      animation: blood-drip 1.5s ease-in forwards;
+    }
+
+    .siege-spider {
+      position: absolute;
+      font-size: 3rem;
+      top: -100px;
+      animation: spider-crawl 3s linear forwards;
+      filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.8));
+    }
+
+    #siege-spooky-jumpscare[data-type="blood"] {
+      background: rgba(20, 0, 0, 0.98) !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="blood"] .siege-spooky-jumpscare-inner {
+      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, blood-pulse 0.5s ease-in-out infinite !important;
+    }
+
+    @keyframes blood-pulse {
+      0%, 100% {
+        filter: drop-shadow(0 0 40px rgba(139, 0, 0, 0.8)) brightness(1);
+      }
+      50% {
+        filter: drop-shadow(0 0 80px rgba(139, 0, 0, 1)) brightness(1.3);
+      }
+    }
+
+    #siege-spooky-jumpscare[data-type="glitch"]::before {
+      animation: siege-spooky-glitch 0.1s infinite !important;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 1px,
+          rgba(255, 0, 0, 0.1) 1px,
+          rgba(255, 0, 0, 0.1) 2px
+        );
+    }
+
+    #siege-spooky-jumpscare[data-type="glitch"] .siege-spooky-jumpscare-inner {
+      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, siege-spooky-glitch 0.1s infinite !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="static"]::before {
+      background:
+        repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 4px),
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 4px);
+      animation: static-noise 0.2s infinite !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="static"] {
+      background: rgba(15, 15, 15, 0.98) !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="static"] .siege-spooky-jumpscare-emoji {
+      filter: drop-shadow(0 0 60px rgba(255, 255, 255, 0.5)) contrast(1.5) !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="shake"] {
+      animation: intense-shake 0.5s ease-in-out infinite !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="shake"] .siege-spooky-jumpscare-inner {
+      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, intense-shake 0.3s ease-in-out infinite !important;
+    }
+
+    #siege-spooky-jumpscare[data-type="crawl"] {
+      background: rgba(10, 5, 0, 0.98) !important;
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+function getPageSpecificJumpscare() {
+  const path = window.location.pathname;
+
+  if (path.includes('/keep')) {
+    return {
+      emoji: ['⚰️', '💀', '🪦', '👻'][Math.floor(Math.random() * 4)],
+      text: ['YOUR TIME IS UP!', 'NO ESCAPE!', 'GAME OVER!', 'TOO LATE!'][Math.floor(Math.random() * 4)],
+      type: 'blood'
+    };
+  } else if (path.includes('/market')) {
+    return {
+      emoji: ['👹', '😈', '🔪', '💉'][Math.floor(Math.random() * 4)],
+      text: ['SOLD YOUR SOUL!', 'THE PRICE IS BLOOD!', 'CURSED DEAL!', 'NO REFUNDS!'][Math.floor(Math.random() * 4)],
+      type: 'glitch'
+    };
+  } else if (path.includes('/great-hall')) {
+    return {
+      emoji: ['👤', '🕴️', '👁️', '🦴'][Math.floor(Math.random() * 4)],
+      text: ['THEY\'RE WATCHING!', 'BETRAYAL!', 'RIGGED!', 'YOU LOSE!'][Math.floor(Math.random() * 4)],
+      type: 'static'
+    };
+  } else if (path.includes('/catacombs')) {
+    return {
+      emoji: ['🕷️', '🦇', '🐍', '🕸️'][Math.floor(Math.random() * 4)],
+      text: ['TRAPPED FOREVER!', 'NO WAY OUT!', 'ENDLESS MAZE!', 'LOST IN DARKNESS!'][Math.floor(Math.random() * 4)],
+      type: 'crawl'
+    };
+  } else if (path.includes('/chambers')) {
+    return {
+      emoji: ['🔮', '🌙', '⚡', '💫'][Math.floor(Math.random() * 4)],
+      text: ['CURSED!', 'DARK MAGIC!', 'POSSESSED!', 'HAUNTED!'][Math.floor(Math.random() * 4)],
+      type: 'shake'
+    };
+  } else {
+    return {
+      emoji: ['💀', '👹', '👻', '🎃', '😱', '☠️'][Math.floor(Math.random() * 6)],
+      text: ['BOO!', 'GOTCHA!', 'AHHH!', 'SPOOKY!', 'WATCH OUT!', 'BEHIND YOU!'][Math.floor(Math.random() * 6)],
+      type: ['blood', 'glitch', 'static', 'shake'][Math.floor(Math.random() * 4)]
+    };
+  }
+}
+
+function showSpookyJumpScare() {
+  ensureSpookyJumpScareStyle();
+
+  if (!document.body || document.getElementById('siege-spooky-jumpscare')) {
+    return;
+  }
+
+  spookyJumpScareCount++;
+  const scare = getPageSpecificJumpscare();
+
+  playSpookyScream();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'siege-spooky-jumpscare';
+  overlay.dataset.type = scare.type;
+
+  const inner = document.createElement('div');
+  inner.className = 'siege-spooky-jumpscare-inner';
+
+  const emoji = document.createElement('div');
+  emoji.className = 'siege-spooky-jumpscare-emoji';
+  emoji.textContent = scare.emoji;
+
+  const text = document.createElement('div');
+  text.className = 'siege-spooky-jumpscare-text';
+  text.textContent = scare.text;
+
+  inner.appendChild(emoji);
+  inner.appendChild(text);
+  overlay.appendChild(inner);
+
+  if (scare.type === 'blood') {
+    const bloodSplatter = document.createElement('div');
+    bloodSplatter.className = 'siege-blood-splatter';
+    overlay.appendChild(bloodSplatter);
+  } else if (scare.type === 'crawl') {
+    for (let i = 0; i < 8; i++) {
+      const spider = document.createElement('div');
+      spider.className = 'siege-spider';
+      spider.style.left = `${Math.random() * 100}%`;
+      spider.style.animationDelay = `${Math.random() * 0.5}s`;
+      spider.textContent = '🕷️';
+      overlay.appendChild(spider);
+    }
+  }
+
+  document.body.appendChild(overlay);
+
+  requestAnimationFrame(() => {
+    overlay.classList.add('is-visible');
+  });
+
+  window.setTimeout(() => {
+    overlay.classList.add('is-fading');
+  }, 2500);
+
+  window.setTimeout(() => {
+    overlay.remove();
+  }, 3300);
+}
+
+function queueSpookyJumpScare() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  ensureSpookyJumpScareStyle();
+
+  if (spookyJumpScareCount >= MAX_SPOOKY_JUMPSCARES || spookyJumpScareTimeout || document.getElementById('siege-spooky-jumpscare')) {
+    return;
+  }
+
+  const delay = 3000 + Math.random() * 7000;
+  spookyJumpScareTimeout = window.setTimeout(() => {
+    spookyJumpScareTimeout = null;
+    showSpookyJumpScare();
+
+    if (spookyJumpScareCount < MAX_SPOOKY_JUMPSCARES && Math.random() > 0.3) {
+      const nextDelay = 10000 + Math.random() * 20000;
+      window.setTimeout(() => queueSpookyJumpScare(), nextDelay);
+    }
+  }, delay);
+}
+
+function teardownSpookyJumpScare() {
+  if (spookyJumpScareTimeout) {
+    window.clearTimeout(spookyJumpScareTimeout);
+    spookyJumpScareTimeout = null;
+  }
+
+  const overlay = document.getElementById('siege-spooky-jumpscare');
+  if (overlay) {
+    overlay.remove();
+  }
+
+  hasShownSpookyJumpScare = false;
+  spookyJumpScareCount = 0;
+
+  if (spookyBackgroundAudio) {
+    spookyBackgroundAudio.stop();
+    spookyBackgroundAudio = null;
+  }
+
+  spookyAudioUnlocked = false;
+}
+
+function createSpookyAudioContext() {
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    return null;
+  }
+  return new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playSpookyScream() {
+  if (!spookyAudioUnlocked) return;
+
+  const audioContext = createSpookyAudioContext();
+  if (!audioContext) return;
+
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  const filter = audioContext.createBiquadFilter();
+
+  oscillator.connect(filter);
+  filter.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+
+  oscillator.type = 'sawtooth';
+  oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(110, audioContext.currentTime + 0.3);
+
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(2000, audioContext.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(500, audioContext.currentTime + 0.3);
+
+  gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
+
+  oscillator.start(audioContext.currentTime);
+  oscillator.stop(audioContext.currentTime + 0.8);
+}
+
+function startSpookyBackgroundAudio() {
+  if (!spookyAudioUnlocked || spookyBackgroundAudio) return;
+
+  const audioContext = createSpookyAudioContext();
+  if (!audioContext) return;
+
+  const playAmbientDrone = () => {
+    const oscillator1 = audioContext.createOscillator();
+    const oscillator2 = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    const filter = audioContext.createBiquadFilter();
+
+    oscillator1.type = 'sine';
+    oscillator1.frequency.setValueAtTime(55, audioContext.currentTime);
+
+    oscillator2.type = 'triangle';
+    oscillator2.frequency.setValueAtTime(82.5, audioContext.currentTime);
+
+    oscillator1.connect(filter);
+    oscillator2.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(200, audioContext.currentTime);
+    filter.Q.setValueAtTime(10, audioContext.currentTime);
+
+    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.15, audioContext.currentTime + 2);
+
+    oscillator1.start(audioContext.currentTime);
+    oscillator2.start(audioContext.currentTime);
+
+    window.setTimeout(() => {
+      gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 2);
+      window.setTimeout(() => {
+        oscillator1.stop();
+        oscillator2.stop();
+      }, 2000);
+    }, 8000);
+  };
+
+  playAmbientDrone();
+  const interval = window.setInterval(() => {
+    if (!spookyAudioUnlocked) {
+      window.clearInterval(interval);
+      return;
+    }
+    playAmbientDrone();
+  }, 10000);
+
+  spookyBackgroundAudio = { stop: () => window.clearInterval(interval) };
+}
+
+function showSpookyAudioPrompt() {
+  if (spookyAudioUnlocked || document.getElementById('siege-spooky-audio-prompt')) {
+    return;
+  }
+
+  const promptStyle = document.createElement('style');
+  promptStyle.id = 'siege-spooky-audio-prompt-style';
+  promptStyle.textContent = `
+    @keyframes spooky-prompt-appear {
+      0% {
+        opacity: 0;
+        transform: scale(0.5) rotate(-5deg);
+      }
+      50% {
+        transform: scale(1.1) rotate(2deg);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+      }
+    }
+
+    @keyframes spooky-prompt-pulse {
+      0%, 100% {
+        box-shadow: 0 0 30px rgba(255, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.5);
+        transform: scale(1);
+      }
+      50% {
+        box-shadow: 0 0 60px rgba(255, 0, 0, 1), inset 0 0 50px rgba(0, 0, 0, 0.7);
+        transform: scale(1.02);
+      }
+    }
+
+    @keyframes spooky-prompt-glitch {
+      0%, 100% { transform: translate(0, 0); }
+      20% { transform: translate(-2px, 2px); }
+      40% { transform: translate(2px, -2px); }
+      60% { transform: translate(-2px, -2px); }
+      80% { transform: translate(2px, 2px); }
+    }
+
+    #siege-spooky-audio-prompt {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2147483647;
+      background: linear-gradient(135deg, #1a0000 0%, #000000 100%);
+      border: 3px solid #ff0000;
+      padding: 3rem 4rem;
+      border-radius: 8px;
+      text-align: center;
+      animation: spooky-prompt-appear 0.5s ease-out, spooky-prompt-pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 30px rgba(255, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.5);
+    }
+
+    #siege-spooky-audio-prompt::before {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      background: linear-gradient(45deg, transparent 30%, rgba(255, 0, 0, 0.3) 50%, transparent 70%);
+      border-radius: 10px;
+      animation: spooky-prompt-glitch 0.5s infinite;
+      pointer-events: none;
+    }
+
+    .spooky-prompt-title {
+      font-size: 2.5rem;
+      color: #ff0000;
+      font-weight: 900;
+      margin-bottom: 1.5rem;
+      text-shadow:
+        0 0 20px rgba(255, 0, 0, 1),
+        0 0 40px rgba(255, 0, 0, 0.8),
+        3px 3px 0 #000,
+        -3px -3px 0 #000;
+      font-family: 'Impact', 'Arial Black', sans-serif;
+      letter-spacing: 0.1em;
+      animation: spooky-prompt-glitch 0.3s infinite;
+    }
+
+    .spooky-prompt-text {
+      font-size: 1.2rem;
+      color: #ff6666;
+      margin-bottom: 2rem;
+      text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+      font-weight: 600;
+    }
+
+    .spooky-prompt-button {
+      background: linear-gradient(135deg, #cc0000 0%, #660000 100%);
+      color: #ffffff;
+      border: 2px solid #ff0000;
+      padding: 1rem 3rem;
+      font-size: 1.5rem;
+      font-weight: 900;
+      border-radius: 4px;
+      cursor: pointer;
+      text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+      box-shadow: 0 0 20px rgba(255, 0, 0, 0.6), inset 0 0 10px rgba(0, 0, 0, 0.5);
+      transition: all 0.3s ease;
+      font-family: 'Impact', 'Arial Black', sans-serif;
+      letter-spacing: 0.05em;
+    }
+
+    .spooky-prompt-button:hover {
+      background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+      box-shadow: 0 0 40px rgba(255, 0, 0, 1), inset 0 0 20px rgba(0, 0, 0, 0.7);
+      transform: scale(1.05);
+    }
+
+    .spooky-prompt-button:active {
+      transform: scale(0.95);
+    }
+
+    .spooky-prompt-warning {
+      font-size: 0.9rem;
+      color: #cc4444;
+      margin-top: 1rem;
+      font-style: italic;
+      text-shadow: 0 0 5px rgba(255, 0, 0, 0.3);
+    }
+
+    #siege-spooky-audio-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 2147483646;
+      animation: spooky-prompt-appear 0.3s ease-out;
+    }
+  `;
+
+  document.head.appendChild(promptStyle);
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'siege-spooky-audio-backdrop';
+
+  const prompt = document.createElement('div');
+  prompt.id = 'siege-spooky-audio-prompt';
+  prompt.innerHTML = `
+    <div class="spooky-prompt-title">⚠️ WARNING ⚠️</div>
+    <div class="spooky-prompt-text">
+      You have entered the haunted realm...<br>
+      The spirits demand your attention.
+    </div>
+    <button class="spooky-prompt-button">PRESS THIS OR ELSE</button>
+    <div class="spooky-prompt-warning">
+      (Click to unlock the full horror experience)
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(prompt);
+
+  const button = prompt.querySelector('.spooky-prompt-button');
+  button.addEventListener('click', () => {
+    spookyAudioUnlocked = true;
+
+    prompt.style.animation = 'spooky-prompt-appear 0.3s ease-out reverse';
+    backdrop.style.animation = 'spooky-prompt-appear 0.3s ease-out reverse';
+
+    window.setTimeout(() => {
+      prompt.remove();
+      backdrop.remove();
+      promptStyle.remove();
+
+      startSpookyBackgroundAudio();
+      playSpookyScream();
+    }, 300);
+  });
+}
+
 browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'THEME_CHANGE') {
     applyTheme(message.theme, message.disableHues, message.customColors, message.customHue);
@@ -4831,6 +5569,13 @@ browserAPI.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'
 
 function initSimpleVotingInterface() {
   if (!window.location.pathname.includes('great-hall')) {
+    return;
+  }
+
+  if (document.body.classList.contains('voting-summary-page')) {
+    setTimeout(() => {
+      showVotingFinishedMessage();
+    }, 100);
     return;
   }
 
@@ -4983,6 +5728,36 @@ function showVotingFinishedMessage() {
     uiOverlay.style.display = 'none';
   }
 
+  const greatHall = document.querySelector('.great-hall');
+  if (greatHall) {
+    greatHall.style.display = 'none';
+  }
+
+  const dialogueBox = document.querySelector('.dialogue-box');
+  if (dialogueBox) {
+    dialogueBox.style.display = 'none';
+  }
+
+  const votingPanel = document.querySelector('.voting-panel');
+  if (votingPanel) {
+    votingPanel.style.display = 'none';
+  }
+
+  const reasoningPanel = document.querySelector('.reasoning-panel');
+  if (reasoningPanel) {
+    reasoningPanel.style.display = 'none';
+  }
+
+  const presentingMeeple = document.querySelector('.presenting-meeple');
+  if (presentingMeeple) {
+    presentingMeeple.style.display = 'none';
+  }
+
+  const userMeeple = document.querySelector('.user-meeple-container');
+  if (userMeeple) {
+    userMeeple.style.display = 'none';
+  }
+
   const appMain = document.querySelector('.app-main');
   if (!appMain) {
     return;
@@ -5021,13 +5796,36 @@ function showVotingFinishedMessage() {
       <p style="
         font-size: 1.25rem;
         color: #6b5437;
-        margin: 0;
+        margin: 0 0 2rem 0;
         line-height: 1.6;
       ">Voting for this week has concluded. Check back next week to vote on new projects!</p>
+      <button id="siege-vote-again-btn" style="
+        background: #3b2a1a;
+        color: #f5f5f4;
+        border: 2px solid rgba(64, 43, 32, 0.75);
+        padding: 0.75rem 2rem;
+        font-size: 1.1rem;
+        font-family: 'IM Fell English', serif;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      " onmouseover="this.style.background='#5a3f2a'" onmouseout="this.style.background='#3b2a1a'">
+        Vote Again
+      </button>
     </div>
   `;
 
   appMain.appendChild(messageContainer);
+
+  const voteAgainBtn = document.getElementById('siege-vote-again-btn');
+  if (voteAgainBtn) {
+    voteAgainBtn.addEventListener('click', () => {
+      voteAgainBtn.disabled = true;
+      voteAgainBtn.textContent = 'Creating ballot...';
+      voteAgainBtn.style.cursor = 'not-allowed';
+      window.location.href = '/great-hall?create_new=true';
+    });
+  }
 }
 
 function createVotingInterface(votes, ballotId) {
@@ -5041,6 +5839,37 @@ function createVotingInterface(votes, ballotId) {
     if (uiOverlay) {
       uiOverlay.style.display = 'none';
     }
+
+    const greatHall = document.querySelector('.great-hall');
+    if (greatHall) {
+      greatHall.style.display = 'none';
+    }
+
+    const dialogueBox = document.querySelector('.dialogue-box');
+    if (dialogueBox) {
+      dialogueBox.style.display = 'none';
+    }
+
+    const votingPanel = document.querySelector('.voting-panel');
+    if (votingPanel) {
+      votingPanel.style.display = 'none';
+    }
+
+    const reasoningPanel = document.querySelector('.reasoning-panel');
+    if (reasoningPanel) {
+      reasoningPanel.style.display = 'none';
+    }
+
+    const presentingMeeple = document.querySelector('.presenting-meeple');
+    if (presentingMeeple) {
+      presentingMeeple.style.display = 'none';
+    }
+
+    const userMeeple = document.querySelector('.user-meeple-container');
+    if (userMeeple) {
+      userMeeple.style.display = 'none';
+    }
+
     const appMain = document.querySelector('.app-main');
     if (!appMain) {
       return;
@@ -5271,8 +6100,1678 @@ function createVotingInterface(votes, ballotId) {
     updateButtons();
   }
 
+document.addEventListener('turbo:load', initSimpleVotingInterface);
+document.addEventListener('turbo:render', initSimpleVotingInterface);
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initSimpleVotingInterface);
 } else {
   initSimpleVotingInterface();
+}
+
+const bettingAPI = {
+  cache: {},
+  CACHE_DURATION: 2 * 60 * 1000,
+
+  async fetchWithCache(url, cacheKey) {
+    const now = Date.now();
+    if (this.cache[cacheKey] && (now - this.cache[cacheKey].timestamp) < this.CACHE_DURATION) {
+      return this.cache[cacheKey].data;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      this.cache[cacheKey] = { data, timestamp: now };
+      return data;
+    } catch (error) {
+      console.error(`[BettingAPI] Failed to fetch ${url}:`, error);
+      return null;
+    }
+  },
+
+  async getAllProjects() {
+    return this.fetchWithCache('https://siege.hackclub.com/api/public-beta/projects', 'projects');
+  },
+
+  async getUserData(userId) {
+    return this.fetchWithCache(
+      `https://siege.hackclub.com/api/public-beta/user/${userId}`,
+      `user_${userId}`
+    );
+  },
+
+  async getLeaderboard() {
+    return this.fetchWithCache('https://siege.hackclub.com/api/public-beta/leaderboard', 'leaderboard');
+  },
+
+  async getShop() {
+    return this.fetchWithCache('https://siege.hackclub.com/api/public-beta/shop', 'shop');
+  },
+
+  getCurrentUserId() {
+    const userMeta = document.querySelector('[data-user-id]');
+    return userMeta ? userMeta.dataset.userId : null;
+  },
+
+  calculateWeeklyStats(projectsData) {
+    if (!projectsData || !projectsData.projects) return new Map();
+
+    const weeklyStats = new Map();
+
+    projectsData.projects.forEach(project => {
+      const weekMatch = project.week_badge_text?.match(/Week (\d+)/);
+      if (!weekMatch) return;
+
+      const weekNum = parseInt(weekMatch[1]);
+      if (!weeklyStats.has(weekNum)) {
+        weeklyStats.set(weekNum, { totalHours: 0, projectCount: 0 });
+      }
+
+      const stats = weeklyStats.get(weekNum);
+      stats.totalHours += project.hours || 0;
+      stats.projectCount += 1;
+    });
+
+    return weeklyStats;
+  },
+
+  getCurrentWeek(projectsData) {
+    if (!projectsData || !projectsData.projects || projectsData.projects.length === 0) return 9;
+
+    const weeks = projectsData.projects
+      .map(p => {
+        const match = p.week_badge_text?.match(/Week (\d+)/);
+        return match ? parseInt(match[1]) : 0;
+      })
+      .filter(w => w > 0);
+
+    return weeks.length > 0 ? Math.max(...weeks) : 9;
+  },
+
+  getUserWeeklyHours(userData) {
+    if (!userData || !userData.projects) return [];
+
+    const weeklyHours = new Map();
+
+    userData.projects.forEach(project => {
+      const weekMatch = project.week_badge_text?.match(/Week (\d+)/);
+      if (!weekMatch) return;
+
+      const weekNum = parseInt(weekMatch[1]);
+      weeklyHours.set(weekNum, 0);
+    });
+
+    return Array.from(weeklyHours.values());
+  }
+};
+
+const bettingPredictor = {
+  predictPersonalHours(weeklyHoursArray) {
+    if (!weeklyHoursArray || weeklyHoursArray.length === 0) {
+      return { prediction: 10, confidence: 0, decayRate: 0, consistency: 0 };
+    }
+
+    const alpha = 0.4;
+    let ewma = weeklyHoursArray[0];
+
+    for (let i = 1; i < weeklyHoursArray.length; i++) {
+      ewma = alpha * weeklyHoursArray[i] + (1 - alpha) * ewma;
+    }
+
+    let decayRate = 0;
+    if (weeklyHoursArray.length >= 4) {
+      const recent = (weeklyHoursArray[weeklyHoursArray.length - 1] + weeklyHoursArray[weeklyHoursArray.length - 2]) / 2;
+      const previous = (weeklyHoursArray[weeklyHoursArray.length - 3] + weeklyHoursArray[weeklyHoursArray.length - 4]) / 2;
+      decayRate = previous > 0 ? (recent - previous) / previous : 0;
+    }
+
+    const mean = weeklyHoursArray.reduce((a, b) => a + b, 0) / weeklyHoursArray.length;
+    const variance = weeklyHoursArray.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeklyHoursArray.length;
+    const stdDev = Math.sqrt(variance);
+    const consistency = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
+
+    const prediction = ewma * (1 + decayRate * 0.2);
+
+    const dataConfidence = Math.min(weeklyHoursArray.length / 5, 1);
+    const confidence = dataConfidence * consistency;
+
+    return {
+      prediction: Math.max(0, prediction),
+      confidence,
+      decayRate,
+      consistency,
+      mean,
+      stdDev
+    };
+  },
+
+  generatePersonalSuggestions(prediction) {
+    const base = prediction.prediction;
+
+    return {
+      conservative: {
+        label: 'Conservative',
+        hours: Math.round(base * 0.75 * 2) / 2,
+        multiplier: 1.5,
+        winProbability: this.calculateWinProbability(base * 0.75, prediction)
+      },
+      moderate: {
+        label: 'Moderate',
+        hours: Math.round(base * 0.90 * 2) / 2,
+        multiplier: 2.0,
+        winProbability: this.calculateWinProbability(base * 0.90, prediction)
+      },
+      aggressive: {
+        label: 'Aggressive',
+        hours: Math.round(base * 1.10 * 2) / 2,
+        multiplier: 2.5,
+        winProbability: this.calculateWinProbability(base * 1.10, prediction)
+      }
+    };
+  },
+
+  calculateWinProbability(goalHours, prediction) {
+    if (prediction.stdDev === 0) return goalHours <= prediction.prediction ? 0.9 : 0.1;
+
+    const z = (goalHours - prediction.prediction) / prediction.stdDev;
+
+    const probability = this.normalCDF(-z);
+
+    return Math.max(0.01, Math.min(0.99, probability));
+  },
+
+  normalCDF(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return x > 0 ? 1 - p : p;
+  },
+
+  predictGlobalHours(weeklyStatsMap, currentWeek) {
+    if (!weeklyStatsMap || weeklyStatsMap.size === 0) {
+      return { prediction: 1000, confidence: 0, trend: 'unknown' };
+    }
+
+    const weeks = Array.from(weeklyStatsMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([week, stats]) => stats.totalHours);
+
+    if (weeks.length === 0) {
+      return { prediction: 1000, confidence: 0, trend: 'unknown' };
+    }
+
+    const recentWeeks = weeks.slice(-3);
+    const prediction = recentWeeks.reduce((a, b) => a + b, 0) / recentWeeks.length;
+
+    let trend = 'stable';
+    if (weeks.length >= 3) {
+      const recent = weeks[weeks.length - 1];
+      const previous = weeks[weeks.length - 2];
+      if (recent > previous * 1.1) trend = 'increasing';
+      else if (recent < previous * 0.9) trend = 'decreasing';
+    }
+
+    const mean = weeks.reduce((a, b) => a + b, 0) / weeks.length;
+    const variance = weeks.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeks.length;
+    const stdDev = Math.sqrt(variance);
+    const confidence = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
+
+    return { prediction, confidence, trend };
+  }
+};
+
+const bettingSimulator = {
+  calculateMultiplier(goalHours, predictedHours) {
+    if (predictedHours === 0) return 1.5;
+
+    const ratio = goalHours / predictedHours;
+
+    if (ratio < 0.8) return 1.0;
+    if (ratio < 1.0) return 1.5;
+    if (ratio < 1.2) return 2.0;
+    if (ratio < 1.5) return 2.5;
+    return 3.0;
+  },
+
+  simulatePersonalBet(betAmount, goalHours, userWeeklyHours) {
+    if (betAmount <= 0 || goalHours <= 0) {
+      return { success: false, message: 'Invalid bet amount or goal hours' };
+    }
+
+    const prediction = bettingPredictor.predictPersonalHours(userWeeklyHours);
+    const winProb = bettingPredictor.calculateWinProbability(goalHours, prediction);
+    const multiplier = this.calculateMultiplier(goalHours, prediction.prediction);
+
+    const potentialWin = Math.floor(betAmount * multiplier);
+    const expectedValue = Math.round((potentialWin * winProb) - (betAmount * (1 - winProb)));
+    const roi = ((expectedValue / betAmount) * 100).toFixed(1);
+
+    let riskLevel, riskColor;
+    if (winProb > 0.7) {
+      riskLevel = 'LOW';
+      riskColor = '#059669';
+    } else if (winProb > 0.5) {
+      riskLevel = 'MEDIUM';
+      riskColor = '#d97706';
+    } else {
+      riskLevel = 'HIGH';
+      riskColor = '#dc2626';
+    }
+
+    let recommendation;
+    if (expectedValue > 0 && winProb > 0.6) {
+      recommendation = '✅ Good bet! Positive expected value with decent win probability.';
+    } else if (expectedValue > 0) {
+      recommendation = '⚠️ Risky but profitable. Only bet what you can afford to lose.';
+    } else {
+      recommendation = '❌ Not recommended. Negative expected value means long-term losses.';
+    }
+
+    return {
+      success: true,
+      winProbability: (winProb * 100).toFixed(1),
+      multiplier: multiplier.toFixed(2),
+      potentialWin,
+      expectedValue,
+      roi,
+      riskLevel,
+      riskColor,
+      recommendation
+    };
+  },
+
+  calculateOptimalBetSize(winProb, multiplier, bankroll) {
+    if (winProb <= 0 || multiplier <= 1 || bankroll <= 0) return 0;
+
+    const b = multiplier - 1;
+    const p = winProb;
+    const q = 1 - p;
+    const kelly = (b * p - q) / b;
+
+    const fractionalKelly = Math.max(0, kelly * 0.25);
+
+    return Math.floor(bankroll * fractionalKelly);
+  }
+};
+
+const catacombsIntelPanel = {
+  currentTab: 'bets',
+  userData: null,
+  shopData: null,
+  progressData: null,
+  userCoins: 0,
+  dataLoaded: false,
+  initialized: false,
+
+  createEmbeddedUI() {
+    return `
+      <div id="siege-catacombs-intel">
+        <button id="catacombs-close-btn" title="Close panel">✕</button>
+
+        <div class="catacombs-header">
+          <h1 class="catacombs-title">Catacombs Intelligence</h1>
+          <p class="catacombs-subtitle">Strategic insights and analytics for the shadowy depths</p>
+        </div>
+
+        <div class="catacombs-tabs">
+          <button class="catacombs-tab active" data-tab="bets">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">Bets & Analytics</span>
+          </button>
+          <button class="catacombs-tab" data-tab="shop">
+            <span class="tab-icon">🛒</span>
+            <span class="tab-label">Shop</span>
+          </button>
+          <button class="catacombs-tab" data-tab="secrets">
+            <span class="tab-icon">🔮</span>
+            <span class="tab-label">Secrets</span>
+          </button>
+        </div>
+
+        <div class="catacombs-content-card">
+          <div class="catacombs-tab-content active" id="tab-bets">
+            <div class="loading-state">Loading betting info...</div>
+          </div>
+          <div class="catacombs-tab-content" id="tab-shop">
+            <div class="loading-state">Loading shop...</div>
+          </div>
+          <div class="catacombs-tab-content" id="tab-secrets">
+            <div class="loading-state">Loading secrets...</div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async init() {
+    if (!window.location.pathname.includes('/catacombs')) return;
+
+    if (this.initialized) {
+      return;
+    }
+
+    const mystereepleDialogue = document.querySelector('.mystereeple-dialogue');
+    const hoverOverlay = document.querySelector('.hover-overlay');
+    if (mystereepleDialogue) {
+      mystereepleDialogue.style.display = 'none';
+    }
+    if (hoverOverlay) {
+      hoverOverlay.style.display = 'none';
+    }
+
+    const appMain = document.querySelector('.app-main');
+    if (appMain && !document.getElementById('siege-catacombs-intel')) {
+      appMain.insertAdjacentHTML('beforeend', this.createEmbeddedUI());
+    }
+
+    this.setupEventListeners();
+
+    this.initialized = true;
+    await this.loadData();
+    this.renderCurrentTab();
+  },
+
+  setupEventListeners() {
+    document.querySelectorAll('.catacombs-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const tabName = e.target.dataset.tab;
+        this.switchTab(tabName);
+      });
+    });
+
+    const closeBtn = document.getElementById('catacombs-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        const panel = document.getElementById('siege-catacombs-intel');
+        if (panel) {
+          panel.style.display = 'none';
+        }
+      });
+    }
+  },
+
+  switchTab(tabName) {
+    this.currentTab = tabName;
+
+    document.querySelectorAll('.catacombs-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.tab === tabName);
+    });
+
+    document.querySelectorAll('.catacombs-tab-content').forEach(content => {
+      content.classList.toggle('active', content.id === `tab-${tabName}`);
+    });
+
+    if (this.dataLoaded || tabName === 'secrets') {
+      this.renderCurrentTab();
+    }
+  },
+
+  async loadData() {
+    try {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+      const coinsResponse = await fetch('/market/user_coins', {
+        headers: { 'X-CSRF-Token': csrfToken }
+      });
+      const coinsData = await coinsResponse.json();
+      this.userCoins = coinsData.coins || 0;
+
+      const progressResponse = await fetch('/catacombs/current_progress', {
+        headers: { 'X-CSRF-Token': csrfToken }
+      });
+      this.progressData = await progressResponse.json();
+
+      const shopResponse = await fetch('/catacombs/shop_items');
+      this.shopData = await shopResponse.json();
+
+      this.dataLoaded = true;
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to load data:', error);
+      this.dataLoaded = false;
+    }
+  },
+
+  renderCurrentTab() {
+    switch (this.currentTab) {
+      case 'bets':
+        this.renderBetsTab();
+        break;
+      case 'shop':
+        this.renderShopTab();
+        break;
+      case 'secrets':
+        this.renderSecretsTab();
+        break;
+    }
+  },
+
+  async renderBetsTab() {
+    const container = document.getElementById('tab-bets');
+    if (!container) return;
+
+    if (!this.dataLoaded || !this.progressData) {
+      container.innerHTML = '<div class="loading-state">Loading...</div>';
+      return;
+    }
+
+    const { personal_hours = 0, global_hours = 0 } = this.progressData;
+
+    let selectedBetHours = 0;
+    let betAmount = 0;
+    let selectedBetMultiplier = 1.5;
+    let hasPersonalBet = false;
+
+    const personalBetInfo = document.querySelector('#personal-betting-content .bet-info');
+    if (personalBetInfo) {
+      hasPersonalBet = true;
+
+      const goalText = personalBetInfo.querySelector('.global-stat:nth-child(1) .global-stat-value')?.textContent;
+      if (goalText) {
+        selectedBetHours = parseFloat(goalText) || 0;
+      }
+
+      const coinsText = personalBetInfo.querySelector('.global-stat:nth-child(2) .global-stat-value')?.textContent;
+      if (coinsText) {
+        betAmount = parseInt(coinsText) || 0;
+      }
+
+      const payoutText = personalBetInfo.querySelector('.global-payout .global-payout-value')?.textContent;
+      if (payoutText) {
+        const payout = parseInt(payoutText) || 0;
+        if (betAmount > 0) {
+          selectedBetMultiplier = payout / betAmount;
+        }
+      }
+    }
+
+    let hoursPrediction = 0;
+    let globalBetAmount = 0;
+    let globalMultiplier = 1.5;
+    let hasGlobalBet = false;
+
+    const globalBetInfo = document.querySelector('#global-betting-content .bet-info');
+    if (globalBetInfo) {
+      hasGlobalBet = true;
+
+      const predictionText = globalBetInfo.querySelector('.global-stat:nth-child(1) .global-stat-value')?.textContent;
+      if (predictionText) {
+        hoursPrediction = parseFloat(predictionText) || 0;
+      }
+
+      const coinsText = globalBetInfo.querySelector('.global-stat:nth-child(2) .global-stat-value')?.textContent;
+      if (coinsText) {
+        globalBetAmount = parseInt(coinsText) || 0;
+      }
+
+      const payoutText = globalBetInfo.querySelector('.global-payout .global-payout-value')?.textContent;
+      if (payoutText) {
+        const payout = parseInt(payoutText) || 0;
+        if (globalBetAmount > 0) {
+          globalMultiplier = payout / globalBetAmount;
+        }
+      }
+    }
+
+    let html = `
+
+      <div class="dashboard-grid">
+    `;
+
+    if (hasPersonalBet && selectedBetHours > 0) {  
+      const progressPercent = Math.min((personal_hours / selectedBetHours) * 100, 100);
+      const payout = Math.floor(betAmount * selectedBetMultiplier);
+
+      html += `
+        <div class="bet-info-card" style="margin-top: 0.75rem;">
+          <h3>Personal Bet Active</h3>
+          <div class="bet-stat">
+            <span class="bet-label">Goal:</span>
+            <span class="bet-value">${selectedBetHours}h</span>
+          </div>
+          <div class="bet-stat">
+            <span class="bet-label">Coins Bet:</span>
+            <span class="bet-value">${betAmount}</span>
+          </div>
+          <div class="bet-stat">
+            <span class="bet-label">Potential Payout:</span>
+            <span class="bet-value">${payout} coins</span>
+          </div>
+          <div class="bet-progress-container">
+            <div class="bet-progress-label">Your Progress:</div>
+            <div class="bet-progress-bar">
+              <div class="bet-progress-fill" style="width: ${progressPercent}%"></div>
+            </div>
+            <div class="bet-progress-text">${personal_hours.toFixed(1)}h / ${selectedBetHours}h (${progressPercent.toFixed(1)}%)</div>
+          </div>
+        </div>
+      `;
+    } else {
+      const personalRec = await this.getPersonalBetRecommendation();
+
+      html += `
+        <div class="dashboard-card">
+          <h3>🎯 Personal Bet</h3>
+
+          ${personalRec ? `
+            <div style="margin-bottom: 0.6rem; padding: 0.5rem; background: rgba(75, 115, 195, 0.13); border: 1px solid rgba(95, 135, 215, 0.28); border-radius: 5px; font-size: 0.82rem;">
+              <div style="margin-bottom: 0.3rem;"><strong style="color: #d4c8ff;">${personalRec.avgHours}h avg</strong></div>
+              <div style="color: rgba(195, 215, 235, 0.92); font-size: 0.79rem; line-height: 1.5;">
+                <div>🛡️ Safe: ${personalRec.safe.hours}h (${personalRec.safe.chance}% chance, ${personalRec.safe.risk}% risk) - Bet ${personalRec.safe.bet} coins</div>
+                <div style="margin-top: 0.2rem;">🎲 Risky: ${personalRec.risky.hours}h (${personalRec.risky.chance}% chance, ${personalRec.risky.risk}% risk) - Bet ${personalRec.risky.bet} coins</div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="bet-form-group">
+            <label class="bet-form-label">Hours Goal</label>
+            <select class="bet-form-select" id="bet-hours-goal">
+              <option value="15">15h (1.5x)</option>
+              <option value="20">20h (2x)</option>
+              <option value="25">25h (2.5x)</option>
+            </select>
+          </div>
+          <div class="bet-form-group">
+            <label class="bet-form-label">Bet Amount (max 50)</label>
+            <input type="number" class="bet-form-input" id="bet-amount" value="25" min="1" max="50">
+          </div>
+          <button class="intel-button" id="place-bet-btn">Place Bet</button>
+        </div>
+      `;
+    }
+
+    if (hasGlobalBet && hoursPrediction > 0) {
+      const progressPercent = Math.min((global_hours / hoursPrediction) * 100, 100);
+      const payout = Math.floor(globalBetAmount * globalMultiplier);
+
+      html += `
+        <div class="bet-info-card" style="margin-top: 0.75rem;">
+          <h3>Global Bet Active</h3>
+          <div class="bet-stat">
+            <span class="bet-label">Prediction:</span>
+            <span class="bet-value">${hoursPrediction}h</span>
+          </div>
+          <div class="bet-stat">
+            <span class="bet-label">Coins Bet:</span>
+            <span class="bet-value">${globalBetAmount}</span>
+          </div>
+          <div class="bet-stat">
+            <span class="bet-label">Potential Payout:</span>
+            <span class="bet-value">${payout} coins</span>
+          </div>
+          <div class="bet-progress-container">
+            <div class="bet-progress-label">Global Progress:</div>
+            <div class="bet-progress-bar">
+              <div class="bet-progress-fill" style="width: ${progressPercent}%"></div>
+            </div>
+            <div class="bet-progress-text">${global_hours.toFixed(1)}h / ${hoursPrediction}h (${progressPercent.toFixed(1)}%)</div>
+          </div>
+        </div>
+      `;
+    } else {
+      const globalPred = await this.getGlobalBetPrediction();
+
+      html += `
+        <div class="dashboard-card">
+          <h3>🌍 Global Bet</h3>
+
+          ${globalPred && globalPred.riskStats ? `
+            <div style="margin-bottom: 0.6rem; padding: 0.6rem; background: rgba(95, 85, 185, 0.12); border: 1px solid rgba(115, 105, 205, 0.3); border-radius: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <div><strong style="color: #d4c8ff; font-size: 0.88rem;">Betting Probabilities</strong></div>
+                <div style="font-size: 0.7rem; color: #e0e0e8;">
+                  Confidence: <strong style="color: ${globalPred.riskStats.confidenceRating === 'High' ? '#10b981' : globalPred.riskStats.confidenceRating === 'Medium' ? '#f59e0b' : '#ef4444'};">${globalPred.riskStats.confidenceRating}</strong>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem;">
+                <div style="padding: 0.4rem; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 4px;">
+                  <div style="text-align: center; margin-bottom: 0.3rem;">
+                    <div style="font-size: 0.68rem; color: #c8c8d8; margin-bottom: 0.1rem;">SAFE</div>
+                    <div style="font-size: 1.1rem; font-weight: bold; color: #34d399;">${globalPred.safe}h</div>
+                    <div style="font-size: 0.75rem; font-weight: 600; color: #34d399; margin-top: 0.1rem;">${globalPred.riskStats.safeSuccess}% chance</div>
+                  </div>
+                  <div style="padding: 0.25rem; background: rgba(0,0,0,0.25); border-radius: 3px; font-size: 0.68rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">Bet:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.safeBet} coins</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">EV:</span>
+                      <span style="font-weight: 600; color: ${globalPred.riskStats.safeEV > 0 ? '#10b981' : '#ef4444'};">${globalPred.riskStats.safeEV > 0 ? '+' : ''}${globalPred.riskStats.safeEV}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                      <span style="color: #c8c8d8;">Mult:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.safeMultiplier}x</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="padding: 0.4rem; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 4px;">
+                  <div style="text-align: center; margin-bottom: 0.3rem;">
+                    <div style="font-size: 0.68rem; color: #c8c8d8; margin-bottom: 0.1rem;"> EXPECTED</div>
+                    <div style="font-size: 1.1rem; font-weight: bold; color: #60a5fa;">${globalPred.expected}h</div>
+                    <div style="font-size: 0.75rem; font-weight: 600; color: #60a5fa; margin-top: 0.1rem;">${globalPred.riskStats.expectedSuccess}% chance</div>
+                  </div>
+                  <div style="padding: 0.25rem; background: rgba(0,0,0,0.25); border-radius: 3px; font-size: 0.68rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">Bet:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.expectedBet} coins</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">EV:</span>
+                      <span style="font-weight: 600; color: ${globalPred.riskStats.expectedEV > 0 ? '#10b981' : '#ef4444'};">${globalPred.riskStats.expectedEV > 0 ? '+' : ''}${globalPred.riskStats.expectedEV}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                      <span style="color: #c8c8d8;">Mult:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.expectedMultiplier}x</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="padding: 0.4rem; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 4px;">
+                  <div style="text-align: center; margin-bottom: 0.3rem;">
+                    <div style="font-size: 0.68rem; color: #c8c8d8; margin-bottom: 0.1rem;">RISKY</div>
+                    <div style="font-size: 1.1rem; font-weight: bold; color: #fbbf24;">${globalPred.risky}h</div>
+                    <div style="font-size: 0.75rem; font-weight: 600; color: #fbbf24; margin-top: 0.1rem;">${globalPred.riskStats.riskySuccess}% chance</div>
+                  </div>
+                  <div style="padding: 0.25rem; background: rgba(0,0,0,0.25); border-radius: 3px; font-size: 0.68rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">Bet:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.riskyBet} coins</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                      <span style="color: #c8c8d8;">EV:</span>
+                      <span style="font-weight: 600; color: ${globalPred.riskStats.riskyEV > 0 ? '#10b981' : '#ef4444'};">${globalPred.riskStats.riskyEV > 0 ? '+' : ''}${globalPred.riskStats.riskyEV}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                      <span style="color: #c8c8d8;">Mult:</span>
+                      <span style="font-weight: 600; color: #f0f0f8;">${globalPred.riskStats.riskyMultiplier}x</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 0.5rem; padding: 0.35rem; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 0.68rem; color: #e0e0e8; line-height: 1.4;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+                  <span style="opacity: 0.7;">Algorithm Weights:</span>
+                  <span style="font-weight: 600; color: #f0f0f8;">Exp ${globalPred.algorithmWeights?.exponential || 0}% | Power ${globalPred.algorithmWeights?.powerLaw || 0}%</span>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="bet-form-group">
+            <label class="bet-form-label">Predicted Hours</label>
+            <input type="number" class="bet-form-input" id="global-hours-prediction" value="${globalPred ? globalPred.expected : 1000}" min="1" max="5000">
+          </div>
+          <div class="bet-form-group">
+            <label class="bet-form-label">Bet Amount (max 200)</label>
+            <input type="number" class="bet-form-input" id="global-bet-amount" value="25" min="1" max="200">
+          </div>
+          <button class="intel-button" id="place-global-bet-btn">Place Global Bet</button>
+        </div>
+      `;
+    }
+
+    html += `
+      </div>
+    `;
+
+    html += `
+      <h3 style="margin: 1.2rem 0 0.8rem 0; color: #e8e8f0; font-size: 1.15rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">📊 Analytics & Insights</h3>
+      <div class="dashboard-grid">
+        <div class="dashboard-card">
+          <h3>📈 Personal History</h3>
+          <div class="chart-container">
+            <canvas id="personal-chart"></canvas>
+          </div>
+        </div>
+        <div class="dashboard-card">
+          <h3>🌍 Global Predictions</h3>
+          <div class="chart-container">
+            <canvas id="global-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+
+    if (!hasPersonalBet) {
+      const placeBetBtn = document.getElementById('place-bet-btn');
+      if (placeBetBtn) {
+        placeBetBtn.addEventListener('click', () => this.placePersonalBet());
+      }
+    }
+
+    if (!hasGlobalBet) {
+      const placeGlobalBetBtn = document.getElementById('place-global-bet-btn');
+      if (placeGlobalBetBtn) {
+        placeGlobalBetBtn.addEventListener('click', () => this.placeGlobalBet());
+      }
+    }
+
+    setTimeout(async () => {
+      const personalRec = await this.getPersonalBetRecommendation();
+      const globalPred = await this.getGlobalBetPrediction();
+
+      if (personalRec && personalRec.weekLabels && personalRec.historicalValues) {
+        this.renderPersonalChart('personal-chart', personalRec.weekLabels, personalRec.historicalValues);
+      }
+
+      if (globalPred && globalPred.weekLabels && globalPred.historicalValues) {
+        this.renderGlobalChart('global-chart', globalPred.weekLabels, globalPred.historicalValues, globalPred.algorithms);
+      }
+    }, 100);
+
+  },
+
+  async placePersonalBet() {
+    const hoursGoal = parseInt(document.getElementById('bet-hours-goal').value);
+    const betAmount = parseInt(document.getElementById('bet-amount').value);
+
+    if (betAmount > 50) {
+      alert('Personal bet max is 50 coins!');
+      return;
+    }
+
+    if (betAmount > this.userCoins) {
+      alert('Not enough coins!');
+      return;
+    }
+
+    if (betAmount < 1) {
+      alert('Bet amount must be at least 1 coin');
+      return;
+    }
+
+    const multiplierMap = { 15: 1.5, 20: 2, 25: 2.5 };
+    const multiplier = multiplierMap[hoursGoal] || 1.5;
+
+    try {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      const response = await fetch('/catacombs/place_personal_bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({
+          coin_amount: betAmount,
+          hours_goal: hoursGoal,
+          multiplier: multiplier
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(`✅ Bet placed! Goal: ${hoursGoal}h, Amount: ${betAmount} coins`);
+        await this.loadData();
+        this.renderBetsTab();
+      } else {
+        alert(`❌ Failed: ${data.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to place bet:', error);
+      alert('❌ Failed to place bet');
+    }
+  },
+
+  async placeGlobalBet() {
+    const hoursPrediction = parseInt(document.getElementById('global-hours-prediction').value);
+    const betAmount = parseInt(document.getElementById('global-bet-amount').value);
+
+    if (betAmount > 200) {
+      alert('Global bet max is 200 coins!');
+      return;
+    }
+
+    if (betAmount > this.userCoins) {
+      alert('Not enough coins!');
+      return;
+    }
+
+    if (betAmount < 1) {
+      alert('Bet amount must be at least 1 coin');
+      return;
+    }
+
+    const multiplier = 1.5; 
+
+    try {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      const response = await fetch('/catacombs/place_global_bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({
+          coin_amount: betAmount,
+          predicted_hours: hoursPrediction,
+          multiplier: multiplier
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(`✅ Global bet placed! Prediction: ${hoursPrediction}h, Amount: ${betAmount} coins`);
+        await this.loadData();
+        this.renderBetsTab();
+      } else {
+        alert(`❌ Failed: ${data.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to place global bet:', error);
+      alert('❌ Failed to place bet');
+    }
+  },
+
+  renderShopTab() {
+    const container = document.getElementById('tab-shop');
+    if (!container) return;
+
+    if (!this.dataLoaded || !this.shopData || !this.shopData.items) {
+      container.innerHTML = '<div class="loading-state">Loading shop...</div>';
+      return;
+    }
+
+    const userCoins = this.shopData.user_coins || this.userCoins || 0;
+
+    if (this.shopData.items.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; padding: 3rem; color: rgba(180, 180, 190, 0.7);">
+          <p>No items available in the shop right now.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const itemsHTML = this.shopData.items.map(item => {
+      const canAfford = item.cost <= userCoins;
+      const inStock = item.remaining > 0;
+      const available = canAfford && inStock;
+
+      let buttonHTML = '';
+      if (!inStock) {
+        buttonHTML = '<button class="shop-item-buy-btn" disabled>Out of Stock</button>';
+      } else if (!canAfford) {
+        buttonHTML = `<button class="shop-item-buy-btn" disabled>Need ${item.cost - userCoins} more coins</button>`;
+      } else {
+        buttonHTML = `<button class="shop-item-buy-btn" data-item-id="${item.id}" data-item-cost="${item.cost}" data-item-name="${item.name}">Buy for ${item.cost} coins</button>`;
+      }
+
+      return `
+        <div class="shop-item ${!available ? 'unavailable' : ''}">
+          ${item.image_url ? `<img src="${item.image_url}" class="shop-item-image" alt="${item.name}">` : ''}
+          <div class="shop-item-content">
+            <div class="shop-item-name">${item.name || 'Item'}</div>
+            <div class="shop-item-desc">${item.description || 'No description'}</div>
+            <div class="shop-item-footer">
+              <span class="shop-item-cost">${item.cost} coins</span>
+              <span class="shop-item-stock">${item.remaining} left</span>
+            </div>
+            ${buttonHTML}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(20, 20, 30, 0.7); border: 1px solid rgba(70, 70, 80, 0.5); border-radius: 6px;">
+        <strong style="color: #c8c8d8;">Your Coins:</strong> <span style="color: #b8b8c8; font-weight: 700;">${userCoins}</span>
+      </div>
+      <div class="shop-grid">
+        ${itemsHTML}
+      </div>
+    `;
+
+    container.querySelectorAll('.shop-item-buy-btn:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const itemId = parseInt(e.target.dataset.itemId);
+        const itemCost = parseInt(e.target.dataset.itemCost);
+        const itemName = e.target.dataset.itemName;
+        this.purchaseItem(itemId, itemCost, itemName);
+      });
+    });
+
+  },
+
+  async purchaseItem(itemId, cost, name) {
+    if (!confirm(`Purchase ${name} for ${cost} coins?`)) {
+      return;
+    }
+
+    try {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      const response = await fetch('/catacombs/purchase_shop_item', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({ item_id: itemId })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert(`✅ Purchased ${name}!`);
+        await this.loadData();
+        this.renderShopTab();
+      } else {
+        alert(`❌ Failed: ${data.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to purchase item:', error);
+      alert('❌ Failed to purchase item');
+    }
+  },
+
+  renderSecretsTab() {
+    const container = document.getElementById('tab-secrets');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="secret-content">
+        <h3>This Week's Secret</h3>
+        <p style="margin-bottom: 1rem;">
+          <em>"I hear that if you include a jumpscare in your next project,
+          it might help you out on a spooky halloween night..."</em>
+        </p>
+        <div style="background: rgba(30, 30, 40, 0.6); padding: 1rem; border-radius: 6px; border-left: 3px solid rgba(120, 120, 140, 0.6);">
+          <p style="margin: 0;">
+            There were talks of a big party this Saturday... might be good to
+            have a jumpscare by then... but you didn't hear it from me...
+          </p>
+        </div>
+      </div>
+    `;
+  },
+
+  async getPersonalBetRecommendation() {
+    try {
+      const statsData = JSON.parse(localStorage.getItem('siege-utils-project-stats') || '{}');
+      const unshippedData = JSON.parse(localStorage.getItem('siege-utils-unshipped') || '{}');
+      
+      const userProjects = Object.values(statsData);
+      const unshippedProjects = Object.values(unshippedData);
+
+      if (userProjects.length === 0 && unshippedProjects.length === 0) {
+        return null;
+      }
+
+      const weeklyHours = {};
+
+      userProjects.forEach(project => {
+        const week = project.week || 'Unknown';
+        if (!weeklyHours[week]) {
+          weeklyHours[week] = 0;
+        }
+        weeklyHours[week] += project.hours || 0;
+      });
+
+      unshippedProjects.forEach(project => {
+        const week = project.week || 'Unknown';
+        if (!weeklyHours[week]) {
+          weeklyHours[week] = 0;
+        }
+        weeklyHours[week] += project.initialHours || 0;
+      });
+
+      const weeks = Object.keys(weeklyHours).sort();
+      let weightedSum = 0;
+      let weightTotal = 0;
+
+      weeks.forEach((week, index) => {
+        const weekAgo = weeks.length - 1 - index;
+        const weight = Math.exp(-weekAgo * 0.3);
+        weightedSum += weeklyHours[week] * weight;
+        weightTotal += weight;
+      });
+
+      const avgHours = weightTotal > 0 ? weightedSum / weightTotal : 0;
+      const personalBest = Math.max(...weeks.map(w => weeklyHours[w]));
+
+      const goals = [
+        { hours: 15, multiplier: 1.5 },
+        { hours: 20, multiplier: 2.0 },
+        { hours: 25, multiplier: 2.5 }
+      ];
+
+      const goalsWithStats = goals.map(goal => {
+        let chance;
+        if (goal.hours <= avgHours) {
+          chance = 70 + (30 * (avgHours - goal.hours) / avgHours);
+        } else if (goal.hours <= personalBest) {
+          const ratio = (goal.hours - avgHours) / (personalBest - avgHours);
+          chance = 50 - (30 * ratio);
+        } else {
+          const excessRatio = (goal.hours - personalBest) / personalBest;
+          const decayFactor = Math.exp(-3.5 * excessRatio);
+          chance = 20 * decayFactor;
+        }
+
+        chance = Math.max(1, Math.round(chance));
+        const risk = 100 - chance;
+
+        const p = chance / 100;
+        const q = 1 - p;
+        const maxBet = 50;
+
+        const confidenceScore = Math.max(0, Math.min(1, (p - 0.3) / 0.4));
+        const edge = p * (goal.multiplier - 1) - q;
+        const edgeScore = Math.max(0, Math.min(1, (edge + 0.5) / 1.0));
+        const combinedScore = 0.7 * confidenceScore + 0.3 * edgeScore;
+        const aggressiveFactor = Math.pow(combinedScore, 0.7);
+        const bet = Math.max(5, Math.min(maxBet, Math.round(aggressiveFactor * maxBet)));
+
+        return {
+          hours: goal.hours,
+          multiplier: goal.multiplier,
+          chance,
+          risk,
+          bet
+        };
+      });
+
+      const sortedByChance = [...goalsWithStats].sort((a, b) => b.chance - a.chance);
+      const safeGoal = sortedByChance[0];
+      const riskyGoal = sortedByChance.find(g => g.chance >= 10 && g.hours > safeGoal.hours) || sortedByChance[sortedByChance.length - 1];
+
+      const safeHours = safeGoal.hours;
+      const safeChance = safeGoal.chance;
+      const safeRisk = safeGoal.risk;
+      const safeBet = safeGoal.bet;
+
+      const riskyHours = riskyGoal.hours;
+      const riskyChance = riskyGoal.chance;
+      const riskyRisk = riskyGoal.risk;
+      const riskyBet = riskyGoal.bet;
+
+      const weekValues = weeks.map(w => weeklyHours[w]);
+
+      return {
+        safe: { hours: safeHours, chance: safeChance, risk: safeRisk, bet: safeBet },
+        risky: { hours: riskyHours, chance: riskyChance, risk: riskyRisk, bet: riskyBet },
+        avgHours: avgHours.toFixed(1),
+        weeklyData: weeklyHours,
+        weekLabels: weeks,
+        historicalValues: weekValues
+      };
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to get personal recommendation:', error);
+      return null;
+    }
+  },
+
+  async getGlobalBetPrediction() {
+    try {
+      const response = await fetch('https://siege.hackclub.com/api/public-beta/projects');
+      const data = await response.json();
+
+      if (!data.projects || data.projects.length === 0) {
+        return null;
+      }
+
+      const parseWeekNumber = (weekText) => {
+        const match = weekText ? weekText.match(/Week\s+(\d+)/i) : null;
+        return match ? parseInt(match[1], 10) : null;
+      };
+
+      const minimumWeek = 5;
+      const weeklyBuckets = new Map();
+
+      data.projects.forEach(project => {
+        const weekNumber = parseWeekNumber(project.week_badge_text);
+        if (!weekNumber || weekNumber < minimumWeek) {
+          return;
+        }
+
+        const hours = Number(project.hours) || 0;
+        const status = (project.status || '').toLowerCase();
+
+        if (!weeklyBuckets.has(weekNumber)) {
+          weeklyBuckets.set(weekNumber, { building: 0, other: 0 });
+        }
+        const bucket = weeklyBuckets.get(weekNumber);
+        if (status === 'building') {
+          bucket.building += hours;
+        } else {
+          bucket.other += hours;
+        }
+      });
+
+      if (weeklyBuckets.size === 0) {
+        return null;
+      }
+
+      const allWeekNumbers = Array.from(weeklyBuckets.keys());
+      if (allWeekNumbers.length === 0) {
+        return null;
+      }
+
+      let currentWeek = typeof utils.getCurrentWeek === 'function' ? utils.getCurrentWeek() : null;
+      if (!Number.isFinite(currentWeek)) {
+        currentWeek = null;
+      }
+      if (currentWeek === null) {
+        currentWeek = Math.max(...allWeekNumbers);
+      }
+
+      const weeklyHoursMap = new Map();
+      allWeekNumbers.forEach(weekNumber => {
+        const bucket = weeklyBuckets.get(weekNumber);
+        const includeBuilding = weekNumber >= currentWeek;
+        const totalHours = includeBuilding ? bucket.other + bucket.building : bucket.other;
+        weeklyHoursMap.set(weekNumber, totalHours);
+      });
+
+      if (weeklyHoursMap.size === 0) {
+        return null;
+      }
+
+      const sortedWeekEntries = Array.from(weeklyHoursMap.entries()).sort((a, b) => a[0] - b[0]);
+      const weekNumbers = sortedWeekEntries.map(([week]) => week);
+      const values = sortedWeekEntries.map(([, hours]) => Math.round(hours * 10) / 10);
+      const weekLabels = weekNumbers.map(week => `Week ${week}`);
+
+      const weeklyHours = {};
+      sortedWeekEntries.forEach(([week, hours]) => {
+        weeklyHours[`Week ${week}`] = Math.round(hours * 10) / 10;
+      });
+
+      if (values.length === 0) {
+        return null;
+      }
+
+      const algorithms = this.getAlgorithms(null, values);
+
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+      const stdDev = Math.sqrt(variance);
+
+      let safe, expected, risky;
+
+      if (algorithms && algorithms.exponential && algorithms.powerLaw && algorithms.weightedAverage) {
+        const expPred = algorithms.exponential.prediction;
+        const powPred = algorithms.powerLaw.prediction;
+        const weightedPred = algorithms.weightedAverage.prediction;
+
+        expected = weightedPred;
+
+        const lowerBound = Math.min(expPred, powPred);
+        safe = Math.round(Math.max(1208, lowerBound));
+
+        const upperBound = Math.max(expPred, powPred);
+        risky = Math.round(upperBound);
+
+        if (safe > expected || safe > risky) {
+          const spread = Math.abs(upperBound - lowerBound);
+          safe = Math.round(Math.max(1208, expected - spread * 0.5));
+          risky = Math.round(expected + spread * 0.5);
+        }
+      } else {
+        expected = Math.round(mean);
+        safe = Math.round(Math.max(1208, expected - stdDev * 0.5));
+        risky = Math.round(expected + stdDev * 0.5);
+      }
+
+      const range = `${safe}-${risky}h`;
+
+      const algorithmWeights = algorithms && algorithms.weightedAverage
+        ? algorithms.weightedAverage.weights
+        : null;
+
+      const standardError = stdDev / Math.sqrt(values.length);
+
+      const normalCDF = (x, mean, stdDev) => {
+        if (stdDev === 0) return x >= mean ? 1 : 0;
+        const z = (x - mean) / stdDev;
+        const t = 1 / (1 + 0.2316419 * Math.abs(z));
+        const d = 0.3989423 * Math.exp(-z * z / 2);
+        const prob = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+        return z > 0 ? 1 - prob : prob;
+      };
+
+      const safeSuccess = Math.round((1 - normalCDF(safe, expected, stdDev)) * 100);
+      const expectedSuccess = Math.round((1 - normalCDF(expected, expected, stdDev)) * 100);
+      const riskySuccess = Math.round((1 - normalCDF(risky, expected, stdDev)) * 100);
+
+      const safeRisk = 100 - safeSuccess;
+      const expectedRisk = 100 - expectedSuccess;
+      const riskyRisk = 100 - riskySuccess;
+
+      const calculateOptimalBet = (targetHours, successProb) => {
+        const multiplier = this.calculateGlobalMultiplier(targetHours);
+        const p = successProb / 100;
+        const q = 1 - p;
+        const maxBet = 200;
+
+        const edgePerUnit = (p * (multiplier - 1)) - (1 - p);
+        const normalizedEdge = Math.min(Math.abs(edgePerUnit) / 0.5, 1);
+        const evBet = edgePerUnit > 0
+          ? Math.round(normalizedEdge * maxBet)
+          : Math.round(0.05 * maxBet);
+
+        const expectedReturn = p * (multiplier - 1) - q;
+        const variance = p * Math.pow(multiplier - 1, 2) + q * Math.pow(-1, 2);
+        const stdDev = Math.sqrt(variance);
+        const sharpeRatio = stdDev > 0 ? expectedReturn / stdDev : 0;
+        const normalizedSharpe = Math.max(0, Math.min(1, (sharpeRatio + 1) / 2));
+        const sharpeBet = Math.round(normalizedSharpe * maxBet);
+
+        const b = multiplier - 1;
+        const kellyFraction = b > 0 ? Math.max(0, (p * b - q) / b) : 0;
+        const kellyBet = kellyFraction * maxBet * 0.5;
+        const confidenceFloor = p >= 0.6 ? 0.3 : (p >= 0.5 ? 0.2 : 0.1);
+        const floorBet = confidenceFloor * maxBet;
+        const modKellyBet = Math.round(Math.max(kellyBet, floorBet));
+
+        const riskTolerance = 0.7;
+        let maxUtility = -Infinity;
+        let utilityBet = 5;
+        for (let bet = 5; bet <= maxBet; bet += 5) {
+          const evWin = p * bet * multiplier;
+          const evLose = q * (-bet);
+          const expectedValue = evWin + evLose;
+          const riskPenalty = (1 - riskTolerance) * variance * bet;
+          const utility = expectedValue - riskPenalty;
+
+          if (utility > maxUtility) {
+            maxUtility = utility;
+            utilityBet = bet;
+          }
+        }
+
+        const confidenceScore = Math.max(0, Math.min(1, (p - 0.3) / 0.4));
+        const edge = p * (multiplier - 1) - q;
+        const edgeScore = Math.max(0, Math.min(1, (edge + 0.5) / 1.0));
+        const combinedScore = 0.7 * confidenceScore + 0.3 * edgeScore;
+        const aggressiveFactor = Math.pow(combinedScore, 0.7);
+        const weightedEdgeBet = Math.round(aggressiveFactor * maxBet);
+
+        const algorithms = {
+          evProportional: Math.max(5, Math.min(maxBet, evBet)),
+          sharpe: Math.max(5, Math.min(maxBet, sharpeBet)),
+          modKelly: Math.max(5, Math.min(maxBet, modKellyBet)),
+          utility: Math.max(5, Math.min(maxBet, utilityBet)),
+          weightedEdge: Math.max(5, Math.min(maxBet, weightedEdgeBet))
+        };
+
+        const finalBet = algorithms.weightedEdge;
+
+        const winAmount = finalBet * multiplier;
+        const lossAmount = finalBet;
+        const ev = (p * winAmount) - (q * lossAmount);
+
+        return {
+          optimalBet: finalBet,
+          ev: ev.toFixed(1),
+          kellyPercent: Math.round(aggressiveFactor * 100),
+          multiplier: multiplier.toFixed(2),
+          algorithms
+        };
+      };
+
+      const safeBetting = calculateOptimalBet(safe, safeSuccess);
+      const expectedBetting = calculateOptimalBet(expected, expectedSuccess);
+      const riskyBetting = calculateOptimalBet(risky, riskySuccess);
+
+      let confidenceRating = 'Low';
+      if (values.length >= 4 && standardError < stdDev * 0.7) {
+        confidenceRating = values.length >= 5 && standardError < stdDev * 0.5 ? 'High' : 'Medium';
+      }
+
+      const riskStats = {
+        safeSuccess,
+        expectedSuccess,
+        riskySuccess,
+        safeRisk,
+        expectedRisk,
+        riskyRisk,
+        confidenceRating,
+        standardError: Math.round(standardError),
+        dataPoints: values.length,
+        safeBet: safeBetting.optimalBet,
+        expectedBet: expectedBetting.optimalBet,
+        riskyBet: riskyBetting.optimalBet,
+        safeEV: safeBetting.ev,
+        expectedEV: expectedBetting.ev,
+        riskyEV: riskyBetting.ev,
+        safeMultiplier: safeBetting.multiplier,
+        expectedMultiplier: expectedBetting.multiplier,
+        riskyMultiplier: riskyBetting.multiplier
+      };
+
+      return {
+        safe,
+        expected,
+        risky,
+        range,
+        algorithmWeights,
+        riskStats,
+        weeklyData: weeklyHours,
+        algorithms,
+        historicalValues: values,
+        weekLabels
+      };
+    } catch (error) {
+      console.error('[Catacombs Intel] Failed to get global prediction:', error);
+      return null;
+    }
+  },
+
+  calculateGlobalMultiplier(hours) {
+    if (hours < 1208) return 1.0;
+    if (hours >= 2000) return 20.39;
+    const k = 0.00377;
+    return Math.min(20.39, 1.01 * Math.exp(k * (hours - 1208)));
+  },
+
+  getAlgorithms(weekNumbers, values) {
+    if (!values || values.length < 3) {
+      return null;
+    }
+
+    const n = values.length;
+    const trainStart = Math.min(2, n - 1); 
+    const algs = {};
+
+    const buildSeries = (predictor) => {
+      const series = new Array(n).fill(null);
+      series[0] = values[0];
+      for (let i = 1; i < n; i++) {
+        const trainData = values.slice(0, i);
+        series[i] = predictor(trainData);
+      }
+      const nextPred = predictor(values.slice(0, n - 1));
+      return { series, prediction: Math.round(nextPred) };
+    };
+
+    const expCurvePredictor = (trainData) => {
+      const len = trainData.length;
+      if (len < 2) return trainData[0];
+      const logValues = trainData.map(v => Math.log(Math.max(v, 1)));
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      for (let i = 0; i < len; i++) {
+        sumX += i;
+        sumY += logValues[i];
+        sumXY += i * logValues[i];
+        sumX2 += i * i;
+      }
+      const slope = (len * sumXY - sumX * sumY) / (len * sumX2 - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / len;
+      return Math.exp(intercept + slope * len);
+    };
+    const expCurveResult = buildSeries(expCurvePredictor);
+    algs.exponential = {
+      prediction: expCurveResult.prediction,
+      series: expCurveResult.series,
+      name: 'Exponential',
+      color: '#10b981'
+    };
+
+    const powerLawPredictor = (trainData) => {
+      const len = trainData.length;
+      if (len < 2) return trainData[0];
+      const logX = [], logY = [];
+      for (let i = 0; i < len; i++) {
+        logX.push(Math.log(i + 1));
+        logY.push(Math.log(Math.max(trainData[i], 1)));
+      }
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      for (let i = 0; i < len; i++) {
+        sumX += logX[i];
+        sumY += logY[i];
+        sumXY += logX[i] * logY[i];
+        sumX2 += logX[i] * logX[i];
+      }
+      const slope = (len * sumXY - sumX * sumY) / (len * sumX2 - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / len;
+      return Math.exp(intercept) * Math.pow(len + 1, slope);
+    };
+    const powerLawResult = buildSeries(powerLawPredictor);
+    algs.powerLaw = {
+      prediction: powerLawResult.prediction,
+      series: powerLawResult.series,
+      name: 'Power Law',
+      color: '#3b82f6'
+    };
+
+    const calculateAdaptiveWeights = () => {
+      if (n < 2) return { expWeight: 0.5, powWeight: 0.5 };
+
+      let expErrors = [];
+      let powErrors = [];
+
+      for (let i = 1; i < n; i++) {
+        const trainData = values.slice(0, i);
+        const actual = values[i];
+
+        const expPred = expCurvePredictor(trainData);
+        const powPred = powerLawPredictor(trainData);
+
+        expErrors.push(Math.abs(actual - expPred));
+        powErrors.push(Math.abs(actual - powPred));
+      }
+
+      const expMAE = expErrors.reduce((sum, e) => sum + e, 0) / expErrors.length;
+      const powMAE = powErrors.reduce((sum, e) => sum + e, 0) / powErrors.length;
+
+      const expWeight = 1 / (expMAE + 1);
+      const powWeight = 1 / (powMAE + 1);
+
+      const total = expWeight + powWeight;
+
+      return {
+        expWeight: expWeight / total,
+        powWeight: powWeight / total,
+        expMAE,
+        powMAE
+      };
+    };
+
+    const weights = calculateAdaptiveWeights();
+
+    const weightedAveragePredictor = (trainData) => {
+      const expPred = expCurvePredictor(trainData);
+      const powPred = powerLawPredictor(trainData);
+      const weighted = (expPred * weights.expWeight) + (powPred * weights.powWeight);
+
+      return weighted;
+    };
+
+    const weightedResult = buildSeries(weightedAveragePredictor);
+    algs.weightedAverage = {
+      prediction: weightedResult.prediction,
+      series: weightedResult.series,
+      name: 'Adaptive Weighted',
+      color: '#a855f7',
+      weights: {
+        exponential: Math.round(weights.expWeight * 100),
+        powerLaw: Math.round(weights.powWeight * 100)
+      }
+    };
+
+    return algs;
+  },
+
+  renderPersonalChart(canvasId, weekLabels, historicalValues) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (canvas.chart) {
+      canvas.chart.destroy();
+    }
+
+    canvas.chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: weekLabels,
+        datasets: [{
+          label: 'Your Weekly Hours',
+          data: historicalValues,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96, 165, 250, 0.1)',
+          tension: 0.3,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#c8c8d8' }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { color: '#a8a8b8' },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          },
+          x: {
+            ticks: { color: '#a8a8b8' },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          }
+        }
+      }
+    });
+  },
+
+  renderGlobalChart(canvasId, weekLabels, historicalValues, algorithms) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (canvas.chart) {
+      canvas.chart.destroy();
+    }
+
+    const datasets = [{
+      label: 'Historical Global Hours',
+      data: historicalValues,
+      borderColor: '#8b5cf6',
+      backgroundColor: 'rgba(139, 92, 246, 0.1)',
+      tension: 0.3,
+      fill: true
+    }];
+
+    if (algorithms) {
+      Object.values(algorithms).forEach(alg => {
+        if (!alg.series || !Number.isFinite(alg.prediction)) return;
+        datasets.push({
+          label: `${alg.name}: ${alg.prediction}h`,
+          data: alg.series,
+          borderColor: alg.color,
+          borderDash: [5, 5],
+          borderWidth: 2,
+          pointRadius: 2,
+          fill: false,
+          spanGaps: false
+        });
+      });
+    }
+
+    canvas.chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: weekLabels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#c8c8d8', font: { size: 11 } }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: false,
+            ticks: { color: '#a8a8b8' },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          },
+          x: {
+            ticks: { color: '#a8a8b8', maxRotation: 45 },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          }
+        }
+      }
+    });
+  },
+
+  renderMultiplierChart(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (canvas.chart) {
+      canvas.chart.destroy();
+    }
+
+    const hours = [];
+    const multipliers = [];
+    for (let h = 1000; h <= 2000; h += 50) {
+      hours.push(h);
+      multipliers.push(this.calculateGlobalMultiplier(h));
+    }
+
+    canvas.chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: hours,
+        datasets: [{
+          label: 'Global Multiplier Curve',
+          data: multipliers,
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#c8c8d8' }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Multiplier', color: '#a8a8b8' },
+            ticks: { color: '#a8a8b8' },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          },
+          x: {
+            title: { display: true, text: 'Hours', color: '#a8a8b8' },
+            ticks: { color: '#a8a8b8' },
+            grid: { color: 'rgba(100, 100, 120, 0.2)' }
+          }
+        }
+      }
+    });
+  }
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => catacombsIntelPanel.init(), 1000);
+  });
+} else {
+  setTimeout(() => catacombsIntelPanel.init(), 1000);
 }

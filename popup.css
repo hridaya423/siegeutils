@@ -26,6 +26,11 @@ body[data-theme="signal"] {
   color: #ffffff;
 }
 
+body[data-theme="spooky"] {
+  background: linear-gradient(135deg, #120b1f 0%, #1b1030 100%);
+  color: #f6edff;
+}
+
 .popup-container {
   padding: 1.5rem;
 }
@@ -46,6 +51,10 @@ body[data-theme="catppuccin"] .popup-title {
 
 body[data-theme="signal"] .popup-title {
   color: #2090ea;
+}
+
+body[data-theme="spooky"] .popup-title {
+  color: #ff8a3d;
 }
 
 .popup-subtitle {
@@ -105,6 +114,17 @@ body[data-theme="signal"] .theme-card:hover {
   transform: translateY(-2px);
 }
 
+body[data-theme="spooky"] .theme-card {
+  background: #221636;
+  border: 2px solid #342452;
+}
+
+body[data-theme="spooky"] .theme-card:hover {
+  background: #2b1d43;
+  border-color: #ff8a3d;
+  transform: translateY(-2px);
+}
+
 .theme-card input[type="radio"] {
   appearance: none;
   width: 20px;
@@ -125,6 +145,10 @@ body[data-theme="catppuccin"] .theme-card input[type="radio"] {
 
 body[data-theme="signal"] .theme-card input[type="radio"] {
   border: 2px solid #2090ea;
+}
+
+body[data-theme="spooky"] .theme-card input[type="radio"] {
+  border: 2px solid #ff8a3d;
 }
 
 .theme-card input[type="radio"]:checked::before {
@@ -148,6 +172,10 @@ body[data-theme="catppuccin"] .theme-card input[type="radio"]:checked::before {
 
 body[data-theme="signal"] .theme-card input[type="radio"]:checked::before {
   background: #2090ea;
+}
+
+body[data-theme="spooky"] .theme-card input[type="radio"]:checked::before {
+  background: #ff8a3d;
 }
 
 .theme-preview {
@@ -199,6 +227,11 @@ body[data-theme="catppuccin"] .theme-settings {
 body[data-theme="signal"] .theme-settings {
   background: #1a2332;
   border: 1px solid #2a3647;
+}
+
+body[data-theme="spooky"] .theme-settings {
+  background: #221636;
+  border: 1px solid #342452;
 }
 
 .setting-toggle {
@@ -280,6 +313,16 @@ body[data-theme="signal"] #reset-custom:hover {
   background: #3a4757;
 }
 
+body[data-theme="spooky"] #reset-custom {
+  background: #342452;
+  color: #f6edff;
+  border-color: #48326f;
+}
+
+body[data-theme="spooky"] #reset-custom:hover {
+  background: #48326f;
+}
+
 .popup-footer {
   padding-top: 1rem;
   border-top: 1px solid;
@@ -297,6 +340,10 @@ body[data-theme="catppuccin"] .popup-footer {
 
 body[data-theme="signal"] .popup-footer {
   border-top-color: #2a3647;
+}
+
+body[data-theme="spooky"] .popup-footer {
+  border-top-color: #342452;
 }
 
 .version {
