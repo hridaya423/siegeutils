@@ -5567,17 +5567,17 @@ browserAPI.storage.sync.get(['theme', 'disableHues', 'customColors', 'customHue'
   applyTheme(theme, disableHues, customColors, customHue);
 });
 
+let hasInitializedVoting = false;
+
 function initSimpleVotingInterface() {
   if (!window.location.pathname.includes('great-hall')) {
     return;
   }
 
-  if (document.body.classList.contains('voting-summary-page')) {
-    setTimeout(() => {
-      showVotingFinishedMessage();
-    }, 100);
+  if (hasInitializedVoting) {
     return;
   }
+
 
   function extractVotingData() {
     const scripts = document.querySelectorAll('script');
@@ -5605,6 +5605,7 @@ function initSimpleVotingInterface() {
       }
 
       if (!votesData && (content.includes('const votes =') || content.includes('votingManager.votes ='))) {
+
         const votesMatch = content.match(/(?:const votes|votingManager\.votes)\s*=\s*(\[[\s\S]*?\]);/);
         if (votesMatch) {
           try {
@@ -5682,18 +5683,26 @@ function initSimpleVotingInterface() {
 
   if (votesData) {
     if (!votesData || votesData.length === 0) {
+      hasInitializedVoting = true;
       showVotingFinishedMessage();
       return;
     }
 
+    hasInitializedVoting = true;
     createVotingInterface(votesData, ballotId);
   } else {
     let attempts = 0;
     const checkInterval = setInterval(() => {
+      if (hasInitializedVoting) {
+        clearInterval(checkInterval);
+        return;
+      }
+
       attempts++;
 
       if (attempts > 30) {
         clearInterval(checkInterval);
+        hasInitializedVoting = true;
         showVotingFinishedMessage();
         return;
       }
@@ -5706,10 +5715,12 @@ function initSimpleVotingInterface() {
         clearInterval(checkInterval);
 
         if (!votesData || votesData.length === 0) {
+          hasInitializedVoting = true;
           showVotingFinishedMessage();
           return;
         }
 
+        hasInitializedVoting = true;
         createVotingInterface(votesData, ballotId);
       }
     }, 200);
@@ -6102,6 +6113,10 @@ function createVotingInterface(votes, ballotId) {
 
 document.addEventListener('turbo:load', initSimpleVotingInterface);
 document.addEventListener('turbo:render', initSimpleVotingInterface);
+
+document.addEventListener('turbo:before-visit', () => {
+  hasInitializedVoting = false;
+});
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initSimpleVotingInterface);
