@@ -7101,18 +7101,18 @@ const catacombsIntelPanel = {
     try {
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
-      const coinsResponse = await fetch('/market/user_coins', {
+      const coinsResponse = await fetch('https://siege.hackclub.com/market/user_coins', {
         headers: { 'X-CSRF-Token': csrfToken }
       });
       const coinsData = await coinsResponse.json();
       this.userCoins = coinsData.coins || 0;
 
-      const progressResponse = await fetch('/catacombs/current_progress', {
+      const progressResponse = await fetch('https://siege.hackclub.com/catacombs/current_progress', {
         headers: { 'X-CSRF-Token': csrfToken }
       });
       this.progressData = await progressResponse.json();
 
-      const shopResponse = await fetch('/catacombs/shop_items');
+      const shopResponse = await fetch('https://siege.hackclub.com/catacombs/shop_items');
       this.shopData = await shopResponse.json();
 
       this.dataLoaded = true;
