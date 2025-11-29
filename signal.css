@@ -818,3 +818,67 @@ body.no-hues canvas {
   filter: none !important;
   opacity: 1 !important;
 }
+
+.siege-user-rank {
+  color: var(--signal-text) !important;
+}
+
+.siege-rank-badge {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface2) !important;
+  color: var(--signal-text) !important;
+}
+
+.siege-project-dropdown-selected {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.siege-project-dropdown-selected:hover {
+  border-color: var(--signal-blue) !important;
+  box-shadow: 0 4px 12px rgba(32, 144, 234, 0.2) !important;
+}
+
+.siege-project-dropdown-label {
+  color: var(--signal-subtext0) !important;
+}
+
+.siege-project-dropdown-value {
+  color: var(--signal-text) !important;
+}
+
+.siege-project-dropdown-selected svg {
+  color: var(--signal-text) !important;
+}
+
+.siege-project-dropdown-options {
+  background: var(--signal-surface0) !important;
+  border-color: var(--signal-surface1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-track {
+  background: var(--signal-base) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-thumb {
+  background: var(--signal-surface1) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-thumb:hover {
+  background: var(--signal-surface2) !important;
+}
+
+.siege-project-dropdown-option {
+  color: var(--signal-text) !important;
+}
+
+.siege-project-dropdown-option:hover {
+  background: var(--signal-surface1) !important;
+}
+
+.siege-project-dropdown-option.selected {
+  background: var(--signal-surface2) !important;
+  color: var(--signal-blue) !important;
+}

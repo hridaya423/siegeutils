@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settingsDiv = document.getElementById('catppuccin-settings');
   const customSettingsDiv = document.getElementById('custom-settings');
 
-  if (theme === 'catppuccin' || theme === 'spooky') {
+  if (theme === 'catppuccin' || theme === 'spooky' || theme === 'winter') {
     settingsDiv.style.display = 'block';
   } else if (theme === 'custom') {
     customSettingsDiv.style.display = 'block';
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       await browserAPI.storage.sync.set({ theme: selectedTheme });
       applyPopupTheme(selectedTheme);
 
-      settingsDiv.style.display = (selectedTheme === 'catppuccin' || selectedTheme === 'spooky') ? 'block' : 'none';
+      settingsDiv.style.display = (selectedTheme === 'catppuccin' || selectedTheme === 'spooky' || selectedTheme === 'winter') ? 'block' : 'none';
       customSettingsDiv.style.display = selectedTheme === 'custom' ? 'block' : 'none';
 
       const [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true });

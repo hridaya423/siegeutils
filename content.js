@@ -24,8 +24,10 @@ let userPurchases = [];
 let currentCategory = 'laptop';
 let selectedDevice = null;
 let userGoals = [];
-let isRouteCollapsed = true;  
+let isRouteCollapsed = true;
 let currentRouteItem = null;
+let comparisonMode = false;
+let comparisonRouteItem = null;
 let marketDialogueObserver = null;
 let spookyJumpScareTimeout = null;
 let hasShownSpookyJumpScare = false;
@@ -135,6 +137,160 @@ const utils = {
   formatNumber(value, digits = 1) {
     if (!Number.isFinite(value)) return '0.0';
     return value.toFixed(digits);
+  }
+};
+
+const bettingPredictor = {
+  predictPersonalHours(weeklyHoursArray) {
+    if (!weeklyHoursArray || weeklyHoursArray.length === 0) {
+      return { prediction: 10, confidence: 0, decayRate: 0, consistency: 0 };
+    }
+
+    const alpha = 0.4;
+    let ewma = weeklyHoursArray[0];
+
+    for (let i = 1; i < weeklyHoursArray.length; i++) {
+      ewma = alpha * weeklyHoursArray[i] + (1 - alpha) * ewma;
+    }
+
+    let decayRate = 0;
+    if (weeklyHoursArray.length >= 4) {
+      const recent = (weeklyHoursArray[weeklyHoursArray.length - 1] + weeklyHoursArray[weeklyHoursArray.length - 2]) / 2;
+      const previous = (weeklyHoursArray[weeklyHoursArray.length - 3] + weeklyHoursArray[weeklyHoursArray.length - 4]) / 2;
+      decayRate = previous > 0 ? (recent - previous) / previous : 0;
+    }
+
+    const mean = weeklyHoursArray.reduce((a, b) => a + b, 0) / weeklyHoursArray.length;
+    const variance = weeklyHoursArray.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeklyHoursArray.length;
+    const stdDev = Math.sqrt(variance);
+    const consistency = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
+
+    const prediction = ewma * (1 + decayRate * 0.2);
+
+    const dataConfidence = Math.min(weeklyHoursArray.length / 5, 1);
+    const confidence = dataConfidence * consistency;
+
+    return {
+      prediction: Math.max(0, prediction),
+      confidence,
+      decayRate,
+      consistency,
+      mean,
+      stdDev
+    };
+  },
+
+  generatePersonalSuggestions(prediction) {
+    const base = prediction.prediction;
+
+    return {
+      conservative: {
+        label: 'Conservative',
+        hours: Math.round(base * 0.75 * 2) / 2,
+        multiplier: 1.5,
+        winProbability: this.calculateWinProbability(base * 0.75, prediction)
+      },
+      moderate: {
+        label: 'Moderate',
+        hours: Math.round(base * 0.90 * 2) / 2,
+        multiplier: 2.0,
+        winProbability: this.calculateWinProbability(base * 0.90, prediction)
+      },
+      aggressive: {
+        label: 'Aggressive',
+        hours: Math.round(base * 1.10 * 2) / 2,
+        multiplier: 2.5,
+        winProbability: this.calculateWinProbability(base * 1.10, prediction)
+      }
+    };
+  },
+
+  calculateWinProbability(goalHours, prediction) {
+    if (prediction.stdDev === 0) return goalHours <= prediction.prediction ? 0.9 : 0.1;
+
+    const z = (goalHours - prediction.prediction) / prediction.stdDev;
+
+    const probability = this.normalCDF(-z);
+
+    return Math.max(0.01, Math.min(0.99, probability));
+  },
+
+  normalCDF(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return x > 0 ? 1 - p : p;
+  },
+
+  predictPersonalEfficiency(weeklyEfficiencyArray) {
+    if (!weeklyEfficiencyArray || weeklyEfficiencyArray.length === 0) {
+      return { prediction: 0, confidence: 0, decayRate: 0, consistency: 0 };
+    }
+
+    const alpha = 0.4;
+    let ewma = weeklyEfficiencyArray[0];
+
+    for (let i = 1; i < weeklyEfficiencyArray.length; i++) {
+      ewma = alpha * weeklyEfficiencyArray[i] + (1 - alpha) * ewma;
+    }
+
+    let decayRate = 0;
+    if (weeklyEfficiencyArray.length >= 4) {
+      const recent = (weeklyEfficiencyArray[weeklyEfficiencyArray.length - 1] + weeklyEfficiencyArray[weeklyEfficiencyArray.length - 2]) / 2;
+      const previous = (weeklyEfficiencyArray[weeklyEfficiencyArray.length - 3] + weeklyEfficiencyArray[weeklyEfficiencyArray.length - 4]) / 2;
+      decayRate = previous > 0 ? (recent - previous) / previous : 0;
+    }
+
+    const mean = weeklyEfficiencyArray.reduce((a, b) => a + b, 0) / weeklyEfficiencyArray.length;
+    const variance = weeklyEfficiencyArray.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeklyEfficiencyArray.length;
+    const stdDev = Math.sqrt(variance);
+    const consistency = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
+
+    const prediction = ewma;
+
+    const dataConfidence = Math.min(weeklyEfficiencyArray.length / 5, 1);
+    const confidence = dataConfidence * consistency;
+
+    return {
+      prediction: Math.max(0, prediction),
+      confidence,
+      decayRate,
+      consistency,
+      mean,
+      stdDev
+    };
+  },
+
+  predictGlobalHours(weeklyStatsMap, currentWeek) {
+    if (!weeklyStatsMap || weeklyStatsMap.size === 0) {
+      return { prediction: 1000, confidence: 0, trend: 'unknown' };
+    }
+
+    const weeks = Array.from(weeklyStatsMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([week, stats]) => stats.totalHours);
+
+    if (weeks.length === 0) {
+      return { prediction: 1000, confidence: 0, trend: 'unknown' };
+    }
+
+    const recentWeeks = weeks.slice(-3);
+    const prediction = recentWeeks.reduce((a, b) => a + b, 0) / recentWeeks.length;
+
+    let trend = 'stable';
+    if (weeks.length >= 3) {
+      const recent = weeks[weeks.length - 1];
+      const previous = weeks[weeks.length - 2];
+      if (recent > previous * 1.1) trend = 'increasing';
+      else if (recent < previous * 0.9) trend = 'decreasing';
+    }
+
+    const mean = weeks.reduce((a, b) => a + b, 0) / weeks.length;
+    const variance = weeks.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeks.length;
+    const stdDev = Math.sqrt(variance);
+    const confidence = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
+
+    return { prediction, confidence, trend };
   }
 };
 
@@ -449,8 +605,34 @@ const projectStats = {
       return null;
     }
 
-    let resolvedHours = Number.isFinite(fallbackHours) && fallbackHours > 0 ? fallbackHours : null;
+    let resolvedHours = null;
     let hasExistingTracking = false;
+    const currentWeek = utils.getCurrentWeek();
+    const isCurrentWeek = projectWeek === currentWeek;
+
+    if (isCurrentWeek) {
+      const shouldTrackDuringFetch = track && !hasExistingTracking;
+
+      const fetchPromise = this.sideloadProjectTime(projectId, { track: shouldTrackDuringFetch });
+      const sideloadedHours = await fetchPromise;
+
+      if (Number.isFinite(sideloadedHours) && sideloadedHours > 0) {
+        resolvedHours = sideloadedHours;
+        if (track && !hasExistingTracking) {
+          const weekToSave = Number.isFinite(projectWeek) ? projectWeek : currentWeek;
+          this.trackProjectTime(projectId, sideloadedHours, weekToSave);
+          hasExistingTracking = true;
+        }
+      }
+
+      if (!resolvedHours && Number.isFinite(fallbackHours) && fallbackHours > 0) {
+        resolvedHours = fallbackHours;
+      }
+
+      return Number.isFinite(resolvedHours) && resolvedHours > 0 ? resolvedHours : null;
+    }
+
+    resolvedHours = Number.isFinite(fallbackHours) && fallbackHours > 0 ? fallbackHours : null;
 
     if (!resolvedHours) {
       const storedStats = this.getStoredStats();
@@ -551,7 +733,8 @@ const projectStats = {
       }
     }
 
-    const shouldTrackTime = totalCoins <= 0;
+    const isExplorePage = window.location.pathname === '/armory/explore';
+    const shouldTrackTime = totalCoins <= 0 && !isExplorePage;
 
   const resolvedHours = await this.resolveProjectHours(projectId, {
       fallbackHours,
@@ -1062,8 +1245,10 @@ const goals = {
         .find(el => el && typeof el.textContent === 'string' && /today you coded/i.test(el.textContent));
 
       if (todayElement) {
-        const timeString = todayElement.textContent.replace(/.*today you coded\s*/i, '').trim();
-        if (/\d/.test(timeString)) {
+        const fullText = todayElement.textContent;
+        const match = fullText.match(/today you coded\s+(\d+h\s*\d*m?|\d+m)/i);
+        if (match && match[1]) {
+          const timeString = match[1].trim();
           const parsedHours = projectStats.parseTimeString(timeString);
           if (Number.isFinite(parsedHours)) {
             todayHours = parsedHours;
@@ -1073,7 +1258,7 @@ const goals = {
               console.warn('[Siege Utils] Failed to store today hours:', error);
             }
           }
-        }
+        } 
       }
     }
 
@@ -1755,6 +1940,7 @@ const routePlanner = {
                 Pick an upgrade from the grid to preview its route.
               </div>
             </div>
+            <div class="siege-route-tooltip" data-route-tooltip style="display: none;"></div>
           </div>
         </div>
       </aside>
@@ -1889,11 +2075,20 @@ const routePlanner = {
       return;
     }
 
-    currentRouteItem = {
+    const newRoute = {
       item: enrichedItem,
       category: effectiveCategory,
       device: effectiveDevice
     };
+
+    if (comparisonMode && currentRouteItem && !comparisonRouteItem) {
+      if (currentRouteItem.item.title !== enrichedItem.title) {
+        comparisonRouteItem = newRoute;
+        components.showToast(`Comparing: ${currentRouteItem.item.title} vs ${enrichedItem.title}`, 3000);
+      }
+    } else {
+      currentRouteItem = newRoute;
+    }
   },
 
   resetRoute() {
@@ -2132,6 +2327,14 @@ const routePlanner = {
     const ownedCost = nodesForTotals.reduce((sum, node) => sum + (node.owned ? node.price : 0), 0);
     const neededCost = Math.max(0, totalCost - ownedCost);
 
+    const nextStep = this.findNextStep(nodes, edges);
+    if (nextStep) {
+      const nextNode = nodes.find(n => n.key === nextStep.key);
+      if (nextNode) {
+        nextNode.isNextStep = true;
+      }
+    }
+
     return {
       nodes,
       edges,
@@ -2140,8 +2343,38 @@ const routePlanner = {
       neededCost,
       targetTitle: targetItem.title,
       category,
-      device
+      device,
+      nextStep
     };
+  },
+
+  findNextStep(nodes, edges) {
+    const candidates = nodes.filter(node => {
+      if (node.isBase || node.owned) return false;
+
+      const prerequisites = edges.filter(edge => edge.to === node.key);
+
+      const allPrereqsOwned = prerequisites.every(edge => {
+        const prereqNode = nodes.find(n => n.key === edge.from);
+        return prereqNode && (prereqNode.owned || prereqNode.isBase);
+      });
+
+      return allPrereqsOwned;
+    });
+
+    if (candidates.length === 0) return null;
+
+    const affordable = candidates.filter(c => c.statusClass === 'affordable');
+    if (affordable.length > 0) {
+      affordable.sort((a, b) => {
+        if (a.depth !== b.depth) return b.depth - a.depth;
+        return a.price - b.price;
+      });
+      return affordable[0];
+    }
+
+    candidates.sort((a, b) => a.price - b.price);
+    return candidates[0];
   },
 
   buildNodeLabel(node) {
@@ -2226,7 +2459,7 @@ const routePlanner = {
       const count = levelNodes.length || 1;
       return count * nodeWidth + (count - 1) * horizontalGap;
     });
-
+    
     const maxRowWidth = Math.max(...levelWidths, nodeWidth);
     const svgWidth = paddingX * 2 + maxRowWidth;
     const svgHeight = paddingY * 2 + (levels.length > 0
@@ -2269,6 +2502,9 @@ const routePlanner = {
       if (node.isTarget) {
         classes.push('target');
       }
+      if (node.isNextStep) {
+        classes.push('next-step');
+      }
 
       const titleY = hasCoinLine ? 42 : (nodeHeight / 2);
       const titleBaseline = hasCoinLine ? '' : 'dominant-baseline="middle"';
@@ -2276,8 +2512,17 @@ const routePlanner = {
         ? `<text x="${nodeWidth / 2}" y="${nodeHeight - 24}" class="siege-route-node-coins">${coinsText}</text>`
         : '';
 
+      const nodeData = encodeURIComponent(JSON.stringify({
+        title: node.item.title,
+        price: node.price,
+        owned: node.owned,
+        statusClass: node.statusClass,
+        description: node.item.description || '',
+        isBase: node.isBase
+      }));
+
       return `
-        <g class="${classes.join(' ')}" transform="translate(${node.x}, ${node.y})">
+        <g class="${classes.join(' ')}" transform="translate(${node.x}, ${node.y})" data-node="${nodeData}" style="cursor: pointer;">
           <rect width="${nodeWidth}" height="${nodeHeight}" rx="16" ry="16" />
           <text x="${nodeWidth / 2}" y="${titleY}" ${titleBaseline} class="siege-route-node-title">${title}</text>
           ${coinLine}
@@ -2298,6 +2543,55 @@ const routePlanner = {
     `;
   },
 
+  buildComparisonDiagram(graph1, graph2) {
+    const sharedNodes = new Set();
+    graph1.nodes.forEach(n1 => {
+      if (graph2.nodes.some(n2 => n2.key === n1.key)) {
+        sharedNodes.add(n1.key);
+      }
+    });
+
+    const sharedCost = graph1.nodes.filter(n => sharedNodes.has(n.key) && !n.isBase)
+      .reduce((sum, n) => sum + n.price, 0);
+    const route1OnlyCost = graph1.nodes.filter(n => !sharedNodes.has(n.key) && !n.isBase)
+      .reduce((sum, n) => sum + n.price, 0);
+    const route2OnlyCost = graph2.nodes.filter(n => !sharedNodes.has(n.key) && !n.isBase)
+      .reduce((sum, n) => sum + n.price, 0);
+
+    const totalUnique = route1OnlyCost + route2OnlyCost;
+    const totalBoth = sharedCost + totalUnique;
+
+    return `
+      <div class="siege-route-comparison-container">
+        <div class="siege-comp-summary">
+          <h4>Route Comparison</h4>
+          <div class="siege-comp-summary-row">
+            <span>Shared Prerequisites:</span>
+            <strong>${utils.formatCoins(Math.round(sharedCost))}</strong>
+          </div>
+          <div class="siege-comp-summary-row">
+            <span>Unique to Each:</span>
+            <strong>${utils.formatCoins(Math.round(totalUnique))}</strong>
+          </div>
+          <div class="siege-comp-summary-row">
+            <span>Total for Both:</span>
+            <strong>${utils.formatCoins(Math.round(totalBoth))}</strong>
+          </div>
+        </div>
+        <div class="siege-comp-diagrams">
+          <div class="siege-comp-diagram-col">
+            <div class="siege-comp-diagram-header route1">${utils.escapeHtml(graph1.targetTitle)}</div>
+            ${this.buildSvgDiagram(graph1)}
+          </div>
+          <div class="siege-comp-diagram-col">
+            <div class="siege-comp-diagram-header route2">${utils.escapeHtml(graph2.targetTitle)}</div>
+            ${this.buildSvgDiagram(graph2)}
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
   buildSummary(graph) {
     if (!graph.nodes.length) {
       return '';
@@ -2311,12 +2605,35 @@ const routePlanner = {
     const ownedText = utils.escapeHtml(utils.formatCoins(ownedCoins));
     const neededText = utils.escapeHtml(utils.formatCoins(neededCoins));
 
+    let nextStepHtml = '';
+    if (graph.nextStep) {
+      const nextTitle = utils.escapeHtml(graph.nextStep.item.title);
+      const nextCoins = Math.round(graph.nextStep.price);
+      const nextCoinsText = utils.escapeHtml(utils.formatCoins(nextCoins));
+      const canAfford = graph.nextStep.statusClass === 'affordable';
+      const shortBy = canAfford ? 0 : Math.max(0, nextCoins - utils.getCurrentCoins());
+      const shortText = shortBy > 0 ? ` (${utils.escapeHtml(utils.formatCoins(shortBy))} short)` : '';
+      const statusIcon = canAfford ? '✓' : '🔒';
+
+      nextStepHtml = `
+        <div class="siege-route-next-step">
+          <strong>${statusIcon} Next:</strong> ${nextTitle} for ${nextCoinsText}${shortText}
+        </div>
+      `;
+    }
+
+    const comparisonButton = comparisonMode
+      ? `<button class="siege-route-compare-btn active" data-route-compare>Exit Comparison</button>`
+      : `<button class="siege-route-compare-btn" data-route-compare>Compare Routes</button>`;
+
     return `
       <div class="siege-route-summary-card">
         <div class="siege-route-summary-title">${title}</div>
+        ${nextStepHtml}
         <div class="siege-route-summary-row"><span>Total</span><span>${totalText}</span></div>
         <div class="siege-route-summary-row"><span>Owned</span><span>${ownedText}</span></div>
         <div class="siege-route-summary-row"><span>Remaining</span><span>${neededText}</span></div>
+        ${comparisonButton}
       </div>
     `;
   },
@@ -2409,7 +2726,89 @@ const routePlanner = {
       return;
     }
 
-    container.innerHTML = this.buildSvgDiagram(graph);
+    if (comparisonMode && comparisonRouteItem) {
+      const compGraph = this.buildGraph(comparisonRouteItem);
+      container.innerHTML = this.buildComparisonDiagram(graph, compGraph);
+    } else {
+      container.innerHTML = this.buildSvgDiagram(graph);
+    }
+
+    this.attachTooltipListeners();
+    this.attachComparisonListeners();
+  },
+
+  attachComparisonListeners() {
+    const compareBtn = document.querySelector('[data-route-compare]');
+    if (!compareBtn) return;
+
+    compareBtn.addEventListener('click', async () => {
+      comparisonMode = !comparisonMode;
+
+      if (!comparisonMode) {
+        comparisonRouteItem = null;
+      }
+
+      await this.renderCurrentRoute();
+
+      if (comparisonMode) {
+        components.showToast('Select a second upgrade to compare', 3000);
+      }
+    });
+  },
+
+  attachTooltipListeners() {
+    const nodes = document.querySelectorAll('[data-node]');
+    const tooltip = document.querySelector('[data-route-tooltip]');
+
+    if (!tooltip) return;
+
+    nodes.forEach(nodeEl => {
+      nodeEl.addEventListener('mouseenter', (e) => {
+        try {
+          const nodeData = JSON.parse(decodeURIComponent(nodeEl.dataset.node));
+          this.showTooltip(tooltip, nodeData, e);
+        } catch (error) {
+          console.error('Error showing tooltip:', error);
+        }
+      });
+
+      nodeEl.addEventListener('mouseleave', () => {
+        tooltip.style.display = 'none';
+      });
+    });
+  },
+
+  showTooltip(tooltip, nodeData, event) {
+    if (nodeData.isBase) {
+      tooltip.style.display = 'none';
+      return;
+    }
+
+    const currentCoins = utils.getCurrentCoins();
+    const shortBy = Math.max(0, nodeData.price - currentCoins);
+    const canAfford = nodeData.statusClass === 'affordable';
+
+    const avgEfficiency = projectStats.getAverageEfficiency();
+    const hoursNeeded = shortBy > 0 && avgEfficiency > 0 ? shortBy / avgEfficiency : 0;
+    const timeEstimate = hoursNeeded > 0 ? `~${Math.ceil(hoursNeeded * 10) / 10}h at your pace` : '';
+
+    let actionButton = '';
+    if (nodeData.owned) {
+      actionButton = '<div class="siege-tooltip-owned">✓ Owned</div>';
+    } else if (canAfford) {
+      actionButton = `<button class="siege-tooltip-buy" onclick="window.location.href='/market'">Buy Now</button>`;
+    } else {
+      actionButton = `<div class="siege-tooltip-locked">🔒 ${utils.formatCoins(shortBy)} short${timeEstimate ? ` · ${timeEstimate}` : ''}</div>`;
+    }
+
+    tooltip.innerHTML = `
+      <div class="siege-tooltip-title">${utils.escapeHtml(nodeData.title)}</div>
+      <div class="siege-tooltip-price">${utils.formatCoins(nodeData.price)}</div>
+      ${nodeData.description ? `<div class="siege-tooltip-desc">${utils.escapeHtml(nodeData.description)}</div>` : ''}
+      ${actionButton}
+    `;
+
+    tooltip.style.display = 'block';
   }
 };
 
@@ -3050,28 +3449,122 @@ function addProjectControls() {
   const projectsActions = document.querySelector('.projects-actions');
   if (!projectsActions) return;
 
+  const sortOptions = [
+    { value: 'default', label: 'Default Order' },
+    { value: 'week-desc', label: 'Week (Newest First)' },
+    { value: 'week-asc', label: 'Week (Oldest First)' },
+    { value: 'hours-desc', label: 'Hours (High to Low)' },
+    { value: 'hours-asc', label: 'Hours (Low to High)' },
+    { value: 'coins-desc', label: 'Coins (High to Low)' },
+    { value: 'coins-asc', label: 'Coins (Low to High)' },
+    { value: 'efficiency-desc', label: 'Efficiency (High to Low)' },
+    { value: 'efficiency-asc', label: 'Efficiency (Low to High)' },
+    { value: 'title-asc', label: 'Title (A-Z)' },
+    { value: 'title-desc', label: 'Title (Z-A)' }
+  ];
+
+  const filterOptions = [
+    { value: 'all', label: 'All Projects' },
+    { value: 'shipped', label: 'Shipped Only' },
+    { value: 'unshipped', label: 'Unshipped Only' },
+    { value: 'current-week', label: 'Current Week' },
+    { value: 'high-efficiency', label: 'High Efficiency (>2.5)' },
+    { value: 'low-efficiency', label: 'Low Efficiency (<2.0)' }
+  ];
+
   const controlsHTML = `
-    <div class="siege-project-controls" style="display: flex; gap: 0.5rem; align-items: center;">
-      <select id="siege-sort" style="padding: 0.375rem 0.5rem; border-radius: 0.25rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: inherit; font-size: 0.875rem;">
-        <option value="default">Sort by...</option>
-        <option value="hours-desc">Hours (Descending)</option>
-        <option value="hours-asc">Hours (Ascending)</option>
-        <option value="coins-desc">Coins (Descending)</option>
-        <option value="coins-asc">Coins (Ascending)</option>
-        <option value="efficiency-desc">Efficiency (Descending)</option>
-      </select>
-      <select id="siege-filter" style="padding: 0.375rem 0.5rem; border-radius: 0.25rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: inherit; font-size: 0.875rem;">
-        <option value="all">All Projects</option>
-        <option value="shipped">Shipped</option>
-        <option value="unshipped">Unshipped</option>
-      </select>
+    <div class="siege-project-controls" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+      <div class="siege-project-dropdown" id="siege-sort-dropdown">
+        <div class="siege-project-dropdown-selected" data-value="default">
+          <span class="siege-project-dropdown-label">Sort:</span>
+          <span class="siege-project-dropdown-value">Default Order</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="siege-project-dropdown-options">
+          ${sortOptions.map(opt => `
+            <div class="siege-project-dropdown-option ${opt.value === 'default' ? 'selected' : ''}" data-value="${opt.value}">
+              ${opt.label}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="siege-project-dropdown" id="siege-filter-dropdown">
+        <div class="siege-project-dropdown-selected" data-value="all">
+          <span class="siege-project-dropdown-label">Filter:</span>
+          <span class="siege-project-dropdown-value">All Projects</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="siege-project-dropdown-options">
+          ${filterOptions.map(opt => `
+            <div class="siege-project-dropdown-option ${opt.value === 'all' ? 'selected' : ''}" data-value="${opt.value}">
+              ${opt.label}
+            </div>
+          `).join('')}
+        </div>
+      </div>
     </div>
   `;
 
   projectsActions.insertAdjacentHTML('beforeend', controlsHTML);
 
-  document.getElementById('siege-sort').addEventListener('change', applyProjectSort);
-  document.getElementById('siege-filter').addEventListener('change', applyProjectFilter);
+  setupProjectDropdown('siege-sort-dropdown', applyProjectSort);
+  setupProjectDropdown('siege-filter-dropdown', applyProjectFilter);
+}
+
+function setupProjectDropdown(dropdownId, callback) {
+  const dropdown = document.getElementById(dropdownId);
+  if (!dropdown) return;
+
+  const selected = dropdown.querySelector('.siege-project-dropdown-selected');
+  const options = dropdown.querySelector('.siege-project-dropdown-options');
+  const valueDisplay = dropdown.querySelector('.siege-project-dropdown-value');
+
+  selected.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('open');
+    options.classList.toggle('show');
+
+    document.querySelectorAll('.siege-project-dropdown').forEach(dd => {
+      if (dd !== dropdown) {
+        dd.classList.remove('open');
+        dd.querySelector('.siege-project-dropdown-options').classList.remove('show');
+      }
+    });
+  });
+
+  dropdown.querySelectorAll('.siege-project-dropdown-option').forEach(option => {
+    option.addEventListener('click', (e) => {
+      e.stopPropagation();
+
+      const value = option.dataset.value;
+      const label = option.textContent.trim();
+
+      dropdown.querySelectorAll('.siege-project-dropdown-option').forEach(opt => {
+        opt.classList.remove('selected');
+      });
+      option.classList.add('selected');
+
+      selected.dataset.value = value;
+      valueDisplay.textContent = label;
+
+      dropdown.classList.remove('open');
+      options.classList.remove('show');
+
+      callback({ target: { value, label } });
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target)) {
+      dropdown.classList.remove('open');
+      options.classList.remove('show');
+    }
+  });
 }
 
 function applyProjectSort(e) {
@@ -3090,6 +3583,12 @@ function applyProjectSort(e) {
       case 'default':
         comparison = aData.originalIndex - bData.originalIndex;
         break;
+      case 'week-desc':
+        comparison = bData.week - aData.week;
+        break;
+      case 'week-asc':
+        comparison = aData.week - bData.week;
+        break;
       case 'hours-desc':
         comparison = bData.hours - aData.hours;
         break;
@@ -3104,6 +3603,15 @@ function applyProjectSort(e) {
         break;
       case 'efficiency-desc':
         comparison = bData.efficiency - aData.efficiency;
+        break;
+      case 'efficiency-asc':
+        comparison = aData.efficiency - bData.efficiency;
+        break;
+      case 'title-asc':
+        comparison = aData.title.localeCompare(bData.title);
+        break;
+      case 'title-desc':
+        comparison = bData.title.localeCompare(aData.title);
         break;
       default:
         comparison = 0;
@@ -3123,17 +3631,36 @@ function applyProjectSort(e) {
 function applyProjectFilter(e) {
   const filterValue = e.target.value;
   const projectCards = document.querySelectorAll('article.project-card[id^="project_"]');
+  const currentWeek = utils.getCurrentWeek();
 
   projectCards.forEach(card => {
     const data = extractCardData(card);
+    let shouldShow = false;
 
-    if (filterValue === 'all') {
-      card.style.display = '';
-    } else if (filterValue === 'shipped') {
-      card.style.display = data.shipped ? '' : 'none';
-    } else if (filterValue === 'unshipped') {
-      card.style.display = !data.shipped ? '' : 'none';
+    switch (filterValue) {
+      case 'all':
+        shouldShow = true;
+        break;
+      case 'shipped':
+        shouldShow = data.shipped;
+        break;
+      case 'unshipped':
+        shouldShow = !data.shipped;
+        break;
+      case 'current-week':
+        shouldShow = data.week === currentWeek;
+        break;
+      case 'high-efficiency':
+        shouldShow = data.efficiency > 2.5;
+        break;
+      case 'low-efficiency':
+        shouldShow = data.efficiency < 2.0;
+        break;
+      default:
+        shouldShow = true;
     }
+
+    card.style.display = shouldShow ? '' : 'none';
   });
 }
 
@@ -3155,8 +3682,11 @@ function extractCardData(card) {
 
   if (!datasetHasValues || typeof shipped === 'undefined') {
     const statusElement = card.querySelector('.project-status-indicator');
-    const statusText = statusElement ? statusElement.textContent : '';
-    const fallbackShipped = statusText.includes('🪙') || /\d+\.\d+/.test(statusText);
+    const statusText = statusElement ? statusElement.textContent.trim() : '';
+    const fallbackShipped = statusText.includes('🪙') ||
+                           /\d+\.\d+/.test(statusText) ||
+                           statusText.toLowerCase().includes('submitted for review') ||
+                           statusText.toLowerCase().includes('under review');
 
     const efficiencyBox = card.querySelector('.siege-efficiency-box');
     let fallbackHours = 0;
@@ -3177,12 +3707,29 @@ function extractCardData(card) {
     if (typeof shipped === 'undefined') shipped = fallbackShipped;
   }
 
+  let week = 0;
+  const weekBadge = card.querySelector('.project-badge');
+  if (weekBadge) {
+    const weekMatch = weekBadge.textContent.match(/Week (\d+)/);
+    if (weekMatch) {
+      week = parseInt(weekMatch[1], 10);
+    }
+  }
+
+  let title = '';
+  const titleElement = card.querySelector('.project-title');
+  if (titleElement) {
+    title = titleElement.textContent.trim();
+  }
+
   return {
     hours: Number.isFinite(hours) ? hours : 0,
     coins: Number.isFinite(coins) ? coins : 0,
     efficiency: Number.isFinite(efficiency) ? efficiency : 0,
     shipped: Boolean(shipped),
-    originalIndex: originalIndex >= 0 ? originalIndex : Number.MAX_SAFE_INTEGER
+    originalIndex: originalIndex >= 0 ? originalIndex : Number.MAX_SAFE_INTEGER,
+    week: week || 0,
+    title: title || ''
   };
 }
 
@@ -3375,9 +3922,405 @@ async function enhanceProjectPage() {
   }
 }
 
+function calculateVisualTextLength(text) {
+  return text.replace(/\s+/g, ' ').trim().length;
+}
+
+function addExploreFilters() {
+  if (document.querySelector('.siege-explore-filters')) return;
+
+  const mainContent = document.querySelector('main') || document.querySelector('.projects-explore');
+  if (!mainContent) return;
+
+  const filtersHTML = `
+    <div class="siege-explore-filters" style="margin-bottom: 2rem; padding-top: 1.5rem;">
+      <!-- Single Row: Search on left, Filters on right -->
+      <div style="
+        display: grid;
+        grid-template-columns: 1fr auto auto auto auto;
+        gap: 0.75rem;
+        align-items: center;
+      ">
+        <!-- Search Bar -->
+        <input
+          type="text"
+          id="siege-search-input"
+          placeholder="🔍 Search projects..."
+          style="
+            padding: 0.6rem 1rem;
+            border: 2px solid rgba(64, 43, 32, 0.2);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
+            transition: all 0.2s;
+            font-family: inherit;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+          "
+          onfocus="this.style.borderColor='rgba(146, 64, 14, 0.4)'; this.style.boxShadow='0 0 0 3px rgba(146, 64, 14, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05)'"
+          onblur="this.style.borderColor='rgba(64, 43, 32, 0.2)'; this.style.boxShadow='0 1px 3px rgba(0, 0, 0, 0.05)'"
+        />
+
+        <!-- Results Counter -->
+        <div id="siege-filter-count" style="
+          font-size: 0.875rem;
+          color: rgba(59, 42, 26, 0.7);
+          font-weight: 600;
+          white-space: nowrap;
+        "></div>
+
+        <!-- Status Filter -->
+        <div class="siege-project-dropdown" id="siege-explore-status-dropdown">
+          <div class="siege-project-dropdown-selected" data-value="all">
+            <span class="siege-project-dropdown-value">All Status</span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="siege-project-dropdown-options">
+            <div class="siege-project-dropdown-option selected" data-value="all">All Status</div>
+            <div class="siege-project-dropdown-option" data-value="shipped">✓ Shipped</div>
+            <div class="siege-project-dropdown-option" data-value="unshipped">○ Unshipped</div>
+          </div>
+        </div>
+
+        <!-- Week Filter -->
+        <div class="siege-project-dropdown" id="siege-explore-week-dropdown">
+          <div class="siege-project-dropdown-selected" data-value="all">
+            <span class="siege-project-dropdown-value">All Weeks</span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="siege-project-dropdown-options">
+            <div class="siege-project-dropdown-option selected" data-value="all">All Weeks</div>
+          </div>
+        </div>
+
+        <!-- Reset Button -->
+        <button id="siege-reset-filters" style="
+          padding: 0.6rem 1.1rem;
+          background: rgba(146, 64, 14, 0.08);
+          border: 2px solid rgba(146, 64, 14, 0.25);
+          border-radius: 6px;
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: rgba(92, 40, 7, 0.9);
+          cursor: pointer;
+          transition: all 0.2s;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          white-space: nowrap;
+          font-family: inherit;
+        "
+        onmouseover="this.style.background='rgba(146, 64, 14, 0.15)'; this.style.borderColor='rgba(146, 64, 14, 0.35)'"
+        onmouseout="this.style.background='rgba(146, 64, 14, 0.08)'; this.style.borderColor='rgba(146, 64, 14, 0.25)'"
+        onmousedown="this.style.transform='scale(0.98)'"
+        onmouseup="this.style.transform='scale(1)'">
+          Reset
+        </button>
+      </div>
+    </div>
+  `;
+
+  const projectsHeader = document.querySelector('.projects-header');
+  if (projectsHeader) {
+    projectsHeader.insertAdjacentHTML('afterend', filtersHTML);
+  } else {
+    const pageTitle = document.querySelector('h1') || document.querySelector('.page-title') || mainContent.querySelector('h1, h2');
+    if (pageTitle) {
+      pageTitle.insertAdjacentHTML('afterend', filtersHTML);
+    } else {
+      mainContent.insertAdjacentHTML('afterbegin', filtersHTML);
+    }
+  }
+
+  const projectCards = document.querySelectorAll('.project-card');
+  const weeks = new Set();
+  projectCards.forEach(card => {
+    const badge = card.querySelector('.project-badge');
+    if (badge) {
+      const weekMatch = badge.textContent.match(/Week (\d+)/);
+      if (weekMatch) {
+        weeks.add(parseInt(weekMatch[1]));
+      }
+    }
+  });
+
+  const weekDropdownOptions = document.querySelector('#siege-explore-week-dropdown .siege-project-dropdown-options');
+  Array.from(weeks).sort((a, b) => b - a).forEach(week => {
+    const option = document.createElement('div');
+    option.className = 'siege-project-dropdown-option';
+    option.dataset.value = week;
+    option.textContent = `Week ${week}`;
+    weekDropdownOptions.appendChild(option);
+  });
+
+  setupProjectDropdown('siege-explore-status-dropdown', ({ target }) => {
+    applyFilters();
+  });
+  setupProjectDropdown('siege-explore-week-dropdown', ({ target }) => {
+    applyFilters();
+  });
+
+  function applyFilters() {
+    const searchTerm = document.getElementById('siege-search-input').value.toLowerCase();
+    const statusDropdown = document.querySelector('#siege-explore-status-dropdown .siege-project-dropdown-selected');
+    const weekDropdown = document.querySelector('#siege-explore-week-dropdown .siege-project-dropdown-selected');
+    const statusFilter = statusDropdown?.dataset.value || 'all';
+    const weekFilter = weekDropdown?.dataset.value || 'all';
+
+    let visibleCount = 0;
+
+    projectCards.forEach(card => {
+      let show = true;
+
+      if (searchTerm) {
+        const title = card.querySelector('.project-title')?.textContent.toLowerCase() || '';
+        const description = card.querySelector('.project-description')?.textContent.toLowerCase() || '';
+        const fullText = title + ' ' + description;
+
+        if (!fullText.includes(searchTerm)) {
+          show = false;
+        }
+      }
+
+      if (statusFilter !== 'all') {
+        const statusIndicator = card.querySelector('.project-status-indicator');
+        const hasCoins = statusIndicator && (
+          statusIndicator.textContent.includes('🪙') ||
+          /Value:\s*\d+/.test(statusIndicator.textContent) ||
+          /\d+\s*coins?/i.test(statusIndicator.textContent)
+        );
+
+        if (statusFilter === 'shipped' && !hasCoins) {
+          show = false;
+        } else if (statusFilter === 'unshipped' && hasCoins) {
+          show = false;
+        }
+      }
+
+      if (weekFilter !== 'all') {
+        const badge = card.querySelector('.project-badge');
+        const weekMatch = badge?.textContent.match(/Week (\d+)/);
+        const cardWeek = weekMatch ? weekMatch[1] : null;
+
+        if (cardWeek !== weekFilter) {
+          show = false;
+        }
+      }
+
+      card.style.display = show ? '' : 'none';
+      if (show) visibleCount++;
+    });
+
+    const countEl = document.getElementById('siege-filter-count');
+    if (countEl) {
+      countEl.textContent = `Showing ${visibleCount} of ${projectCards.length} projects`;
+    }
+
+    setTimeout(() => {
+      const visibleCards = Array.from(projectCards).filter(card => card.style.display !== 'none');
+      const rows = {};
+
+      visibleCards.forEach((card, index) => {
+        const rowIndex = Math.floor(index / 3);
+        if (!rows[rowIndex]) rows[rowIndex] = [];
+        rows[rowIndex].push(card);
+      });
+
+      Object.values(rows).forEach(rowCards => {
+        rowCards.forEach(card => card.style.height = 'auto');
+        const heights = rowCards.map(card => card.offsetHeight);
+        const maxHeight = Math.max(...heights);
+        rowCards.forEach(card => card.style.height = `${maxHeight}px`);
+      });
+    }, 50);
+  }
+
+  document.getElementById('siege-search-input').addEventListener('input', applyFilters);
+
+  document.getElementById('siege-reset-filters').addEventListener('click', () => {
+    document.getElementById('siege-search-input').value = '';
+
+    const statusDropdown = document.getElementById('siege-explore-status-dropdown');
+    const statusSelected = statusDropdown.querySelector('.siege-project-dropdown-selected');
+    const statusValue = statusDropdown.querySelector('.siege-project-dropdown-value');
+    statusSelected.dataset.value = 'all';
+    statusValue.textContent = 'All Status';
+    statusDropdown.querySelectorAll('.siege-project-dropdown-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.dataset.value === 'all');
+    });
+
+    const weekDropdown = document.getElementById('siege-explore-week-dropdown');
+    const weekSelected = weekDropdown.querySelector('.siege-project-dropdown-selected');
+    const weekValue = weekDropdown.querySelector('.siege-project-dropdown-value');
+    weekSelected.dataset.value = 'all';
+    weekValue.textContent = 'All Weeks';
+    weekDropdown.querySelectorAll('.siege-project-dropdown-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.dataset.value === 'all');
+    });
+
+    applyFilters();
+  });
+
+  applyFilters();
+}
+
+function enhanceArmoryExplore() {
+  if (window.location.pathname !== '/armory/explore') return;
+
+  addExploreFilters();
+
+  const projectCards = Array.from(document.querySelectorAll('.project-card'));
+
+  const cardsPerRow = 3;
+  const cardData = [];
+
+  projectCards.forEach((card, index) => {
+    const descriptionMarker = card.querySelector('.project-description');
+    if (!descriptionMarker) return;
+
+    const projectLinks = card.querySelector('.project-links');
+    let fullHTML = '';
+    let currentElement = descriptionMarker.nextElementSibling;
+
+    while (currentElement && currentElement !== projectLinks) {
+      fullHTML += currentElement.outerHTML;
+      currentElement = currentElement.nextElementSibling;
+    }
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = fullHTML;
+    const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
+    const visualLength = calculateVisualTextLength(textContent);
+    const hasHeadings = /<h[1-6]/i.test(fullHTML);
+
+    cardData.push({
+      card,
+      index,
+      descriptionMarker,
+      projectLinks,
+      fullHTML,
+      textContent,
+      visualLength,
+      hasHeadings,
+      rowIndex: Math.floor(index / cardsPerRow)
+    });
+  });
+
+  const rowLimits = {};
+  cardData.forEach(data => {
+    if (!rowLimits[data.rowIndex]) {
+      rowLimits[data.rowIndex] = [];
+    }
+    rowLimits[data.rowIndex].push(data.visualLength);
+  });
+
+  Object.keys(rowLimits).forEach(rowIndex => {
+    const lengths = rowLimits[rowIndex];
+    const avgLength = lengths.reduce((sum, len) => sum + len, 0) / lengths.length;
+    rowLimits[rowIndex] = Math.max(100, Math.floor(avgLength * 0.25));
+  });
+
+  cardData.forEach((data) => {
+    if (data.descriptionMarker.dataset.siegeEnhanced) {
+      return;
+    }
+
+    data.descriptionMarker.dataset.siegeEnhanced = 'true';
+
+    if (data.visualLength === 0) {
+      return;
+    }
+
+    const charLimit = rowLimits[data.rowIndex];
+
+    if (data.visualLength > charLimit) {
+      const normalizedText = data.textContent.replace(/\s+/g, ' ').trim();
+      const shortText = normalizedText.substring(0, charLimit).trim();
+
+      let currentElement = data.descriptionMarker.nextElementSibling;
+      while (currentElement && currentElement !== data.projectLinks) {
+        const toRemove = currentElement;
+        currentElement = currentElement.nextElementSibling;
+        toRemove.remove();
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'siege-description-wrapper';
+      wrapper.innerHTML = `
+        <div class="siege-description-short">${shortText}...</div>
+        <div class="siege-description-full" style="display: none;">${data.fullHTML}</div>
+        <button class="siege-read-more" style="
+          background: none;
+          border: none;
+          color: rgba(59, 42, 26, 0.7);
+          font-size: 0.75rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0.25rem 0;
+          margin-top: 0.25rem;
+          text-decoration: underline;
+          position: relative;
+          z-index: 3;
+        ">Read more</button>
+      `;
+
+      data.descriptionMarker.parentNode.insertBefore(wrapper, data.projectLinks);
+
+      const readMoreBtn = wrapper.querySelector('.siege-read-more');
+      const shortDiv = wrapper.querySelector('.siege-description-short');
+      const fullDiv = wrapper.querySelector('.siege-description-full');
+
+      if (readMoreBtn) {
+        readMoreBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (fullDiv.style.display === 'none') {
+            shortDiv.style.display = 'none';
+            fullDiv.style.display = 'block';
+            readMoreBtn.textContent = 'Read less';
+          } else {
+            shortDiv.style.display = 'block';
+            fullDiv.style.display = 'none';
+            readMoreBtn.textContent = 'Read more';
+          }
+        });
+      }
+    }
+  });
+
+  setTimeout(() => {
+    const rows = {};
+    cardData.forEach(data => {
+      if (!rows[data.rowIndex]) {
+        rows[data.rowIndex] = [];
+      }
+      rows[data.rowIndex].push(data.card);
+    });
+
+    Object.values(rows).forEach(rowCards => {
+      rowCards.forEach(card => {
+        card.style.height = 'auto';
+      });
+
+      const heights = rowCards.map(card => card.offsetHeight);
+      const maxHeight = Math.max(...heights);
+
+      rowCards.forEach(card => {
+        card.style.height = `${maxHeight}px`;
+      });
+    });
+  }, 100);
+}
+
 async function initProjectStats() {
   if (window.location.pathname === '/armory') {
     await enhanceProjectCards();
+    goals.refreshMicroGoals();
+  } else if (window.location.pathname === '/armory/explore') {
+    enhanceArmoryExplore();
     goals.refreshMicroGoals();
   } else if (window.location.pathname.match(/\/armory\/\d+/)) {
     let retries = 0;
@@ -3414,6 +4357,8 @@ if (typeof window !== 'undefined') {
       console.error('Error enhancing keep page:', error);
     }
   }
+
+  let footerObserver = null;
 
   async function enhanceKeepPage() {
     const homeContainer = document.querySelector('.home-container');
@@ -3452,8 +4397,32 @@ if (typeof window !== 'undefined') {
     goals.refreshMicroGoals();
     addWeeklyHoursPlanner();
     initCountdownTimer();
+    setupFooterObserver();
     homeContainer.dataset.siegeEnhanced = 'true';
 
+  }
+
+  function setupFooterObserver() {
+    if (footerObserver) {
+      footerObserver.disconnect();
+    }
+
+    const footer = document.querySelector('.home-progress-footer');
+    if (!footer) return;
+
+    footerObserver = new MutationObserver(() => {
+      if (!document.getElementById('time-till-next-week-container')) {
+        initCountdownTimer();
+      }
+      if (!document.querySelector('[data-siege-hours-planner]')) {
+        addWeeklyHoursPlanner();
+      }
+    });
+
+    footerObserver.observe(footer, {
+      childList: true,
+      subtree: true
+    });
   }
 
   function enhanceCoffersDisplay(projectionData) {
@@ -3832,9 +4801,12 @@ if (typeof window !== 'undefined') {
           const totalWeekHours = weekShippedProjects.reduce((sum, p) => sum + p.hours, 0);
           coinsPerHour = totalWeekHours > 0 ? totalWeekCoins / totalWeekHours : 0;
           isCoinsProjected = false;
-        } else {
+        } else if (weekData.hours > 0) {
           coinsPerHour = weekNum >= 5 ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
           isCoinsProjected = true;
+        } else {
+          coinsPerHour = 0;
+          isCoinsProjected = false;
         }
 
         return {
@@ -3850,15 +4822,51 @@ if (typeof window !== 'undefined') {
     const avgEfficiency = projectStats.getAverageEfficiency();
 
     const futureWeek = currentWeek + 1;
-    const futureWeekEfficiency = futureWeek >= 5 ? goals.getWeek5PlusEfficiency() : avgEfficiency;
+
+    const allHistoricalEfficiency = chartData
+      .filter(d => !d.isCoinsProjected && d.coinsPerHour > 0)
+      .map(d => d.coinsPerHour);
+
+    let futureWeekEfficiency = futureWeek >= 5 ? goals.getWeek5PlusEfficiency() : avgEfficiency;
+
+    if (allHistoricalEfficiency.length > 0) {
+      const efficiencyPrediction = bettingPredictor.predictPersonalEfficiency(allHistoricalEfficiency);
+      futureWeekEfficiency = Math.round(efficiencyPrediction.prediction * 0.9 * 10) / 10;
+    }
+
+    let futureWeekHours = 10;
+
+    const allHistoricalHours = chartData
+      .filter(d => !d.isHoursProjected && d.hours > 0)
+      .map(d => d.hours);
+
+    if (allHistoricalHours.length > 0) {
+      const prediction = bettingPredictor.predictPersonalHours(allHistoricalHours);
+      futureWeekHours = Math.round(prediction.prediction * 10) / 10;
+
+      const currentWeekData = chartData.find(d => d.week === currentWeek);
+      if (currentWeekData && !currentWeekData.isHoursProjected) {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const daysElapsed = dayOfWeek === 0 ? 7 : dayOfWeek;
+
+        if (daysElapsed < 7 && currentWeekData.hours < futureWeekHours * 0.7) {
+          const dailyPace = currentWeekData.hours / daysElapsed;
+          const projectedCurrentWeek = dailyPace * 7;
+
+          futureWeekHours = (futureWeekHours * 0.6) + (projectedCurrentWeek * 0.4);
+          futureWeekHours = Math.round(futureWeekHours * 10) / 10;
+        }
+      }
+    }
 
     chartData.push({
       week: futureWeek,
-      hours: chartData.length > 0 ? chartData[chartData.length - 1].hours * 0.9 : 8,
-      coinsPerHour: futureWeekEfficiency,
-      label: `Week ${futureWeek}`,  
+      hours: futureWeekHours,
+      coinsPerHour: futureWeekHours > 0 ? futureWeekEfficiency : 0,
+      label: `Week ${futureWeek}`,
       isProjected: true,
-      isCoinsProjected: true,
+      isCoinsProjected: futureWeekHours > 0,
       isHoursProjected: true
     });
 
@@ -3950,6 +4958,18 @@ ${legendMarkup}
     const hoursData = chartData.map(d => d.hours);
     const coinsData = chartData.map(d => d.coinsPerHour);
 
+    const maxHours = Math.max(...hoursData.filter(h => h !== null && h !== undefined));
+
+    const validCoinsData = coinsData.filter((c, idx) => {
+      const hours = hoursData[idx];
+      return c !== null && c !== undefined && hours > 0;
+    });
+    const maxCoins = validCoinsData.length > 0 ? Math.max(...validCoinsData) : 0;
+
+    const hoursSuggestedMax = Math.max(16, Math.ceil(maxHours / 4) * 4);
+
+    const coinsSuggestedMax = Math.max(4, Math.ceil(maxCoins / 4) * 4);
+
     new Chart(ctx, {
       type: 'line',
       data: {
@@ -3958,9 +4978,16 @@ ${legendMarkup}
           {
             data: hoursData,
             borderColor: '#34d399',
-            backgroundColor: 'rgba(52, 211, 153, 0.12)',
+            backgroundColor: (context) => {
+              const ctx = context.chart.ctx;
+              const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
+              gradient.addColorStop(0, 'rgba(52, 211, 153, 0.05)');
+              gradient.addColorStop(0.5, 'rgba(52, 211, 153, 0.25)');
+              gradient.addColorStop(1, 'rgba(52, 211, 153, 0.4)');
+              return gradient;
+            },
             borderWidth: 2,
-            fill: false,
+            fill: 'origin',
             tension: 0.25,
             pointBackgroundColor: (ctx) => chartData[ctx.dataIndex]?.isHoursProjected ? '#ffffff' : '#34d399',
             pointBorderColor: '#34d399',
@@ -3979,16 +5006,23 @@ ${legendMarkup}
           {
             data: coinsData,
             borderColor: '#60a5fa',
-            backgroundColor: 'rgba(96, 165, 250, 0.12)',
+            backgroundColor: (context) => {
+              const ctx = context.chart.ctx;
+              const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
+              gradient.addColorStop(0, 'rgba(96, 165, 250, 0.4)');
+              gradient.addColorStop(0.5, 'rgba(96, 165, 250, 0.25)');
+              gradient.addColorStop(1, 'rgba(96, 165, 250, 0.05)');
+              return gradient;
+            },
             borderWidth: 2,
-            fill: false,
+            fill: 'origin',
             tension: 0.25,
             pointBackgroundColor: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? '#ffffff' : '#60a5fa',
             pointBorderColor: '#60a5fa',
             pointBorderWidth: 2,
             pointRadius: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? 4 : 5,
             pointHoverRadius: 7,
-            yAxisID: 'y',
+            yAxisID: 'y1',
             segment: {
               borderDash: (ctx) => {
                 const startProjected = chartData[ctx.p0DataIndex]?.isCoinsProjected || chartData[ctx.p0DataIndex]?.isProjected || false;
@@ -4027,19 +5061,58 @@ ${legendMarkup}
             type: 'linear',
             display: true,
             position: 'left',
+            min: 0,
+            suggestedMax: hoursSuggestedMax,
             title: {
-              display: false
-            },
-            grid: {
-              color: 'rgba(226, 232, 240, 0.6)'
-            },
-            ticks: {
-              color: '#334155',
+              display: true,
+              text: 'Hours Tracked',
+              color: '#10b981',
               font: {
-                size: 11
+                size: 12,
+                weight: '700'
               }
             },
-            beginAtZero: false,
+            grid: {
+              color: 'rgba(52, 211, 153, 0.25)'
+            },
+            ticks: {
+              stepSize: 4,
+              color: '#10b981',
+              font: {
+                size: 11,
+                weight: '600'
+              }
+            },
+            border: {
+              display: false
+            }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            min: 0,
+            suggestedMax: coinsSuggestedMax,
+            title: {
+              display: true,
+              text: 'Coins/Hour',
+              color: '#3b82f6',
+              font: {
+                size: 12,
+                weight: '700'
+              }
+            },
+            grid: {
+              drawOnChartArea: false
+            },
+            ticks: {
+              stepSize: 4,
+              color: '#3b82f6',
+              font: {
+                size: 11,
+                weight: '600'
+              }
+            },
             border: {
               display: false
             }
@@ -4079,6 +5152,12 @@ ${legendMarkup}
 
   function addWeeklyHoursPlanner() {
     if (document.querySelector('[data-siege-hours-planner]')) {
+      return;
+    }
+
+    const footer = document.querySelector('.home-progress-footer');
+    if (!footer) {
+      setTimeout(() => addWeeklyHoursPlanner(), 300);
       return;
     }
 
@@ -4378,16 +5457,14 @@ ${legendMarkup}
       </details>
     `;
 
-    const footer = document.querySelector('.home-progress-footer');
-    if (footer) {
-      const countdownContainer = document.getElementById('time-till-next-week-container');
-      if (countdownContainer) {
-        countdownContainer.insertAdjacentHTML('beforebegin', plannerHTML);
-      } else {
-        footer.insertAdjacentHTML('beforeend', plannerHTML);
-      }
+    const countdownContainer = document.getElementById('time-till-next-week-container');
+    if (countdownContainer) {
+      countdownContainer.insertAdjacentHTML('beforebegin', plannerHTML);
+    } else {
+      footer.insertAdjacentHTML('beforeend', plannerHTML);
+    }
 
-      document.getElementById('save-schedule')?.addEventListener('click', () => {
+    document.getElementById('save-schedule')?.addEventListener('click', () => {
         const persistCheckbox = document.getElementById('persist-schedule');
         const newConfig = {
           workDays: [],
@@ -4411,7 +5488,6 @@ ${legendMarkup}
 
         components.showToast('Schedule saved! ✅');
       });
-    }
   }
 
   function initCountdownTimer() {
@@ -4426,17 +5502,8 @@ ${legendMarkup}
       footer.appendChild(countdownContainer);
     }
 
-    countdownContainer.style.marginTop = '0.75rem';
-    countdownContainer.style.fontSize = '1.3rem';
-    countdownContainer.style.fontWeight = '500';
-    countdownContainer.style.color = '#374151';
-    countdownContainer.style.padding = '0.5rem';
-    countdownContainer.style.background = 'linear-gradient(180deg, rgba(255, 252, 237, 0.6), rgba(245, 236, 210, 0.55))';
-    countdownContainer.style.borderRadius = '8px';
-    countdownContainer.style.border = '1px solid rgba(0, 0, 0, 0.05)';
-    countdownContainer.style.marginLeft = '2rem'
     countdownContainer.innerHTML = `
-        Next week in: <span id="time-till-next-week" style="font-weight: 700; color: #1f2937;"></span>
+        Next week in: <span id="time-till-next-week"></span>
     `;
 
     updateCountdown();
@@ -4448,9 +5515,9 @@ ${legendMarkup}
       if (!countdownElement) return;
 
       const now = new Date();
-      
+
       let nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0));
-      
+
       while (nextMonday.getUTCDay() !== 1) {
           nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
       }
@@ -4486,13 +5553,6 @@ ${legendMarkup}
   }
 
   function ensureMarketDialogueCleanup() {
-    if (!document.getElementById(MARKET_DIALOGUE_STYLE_ID)) {
-      const style = document.createElement('style');
-      style.id = MARKET_DIALOGUE_STYLE_ID;
-      style.textContent = `#market-dialogue, .market-dialogue { display: none !important; }`;
-      document.head.appendChild(style);
-    }
-
     removeMarketDialogueElements(document);
 
     if (marketDialogueObserver || !document.body) {
@@ -4570,28 +5630,6 @@ ${legendMarkup}
     if (window.location.pathname !== '/castle') return;
     if (document.querySelector('.siege-castle-tooltip')) return;
 
-    const tooltipStyle = document.createElement('style');
-    tooltipStyle.textContent = `
-      .siege-castle-tooltip {
-        position: fixed;
-        background: rgba(40, 30, 20, 0.95);
-        color: #f5e7b7;
-        padding: 0.5rem 1rem;
-        border-radius: 0.5rem;
-        font-size: 1rem;
-        font-weight: 600;
-        pointer-events: none;
-        z-index: 10000;
-        opacity: 0;
-        transition: opacity 0.2s ease;
-        border: 2px solid rgba(245, 231, 183, 0.3);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-      }
-      .siege-castle-tooltip.visible {
-        opacity: 1;
-      }
-    `;
-    document.head.appendChild(tooltipStyle);
 
     const tooltip = document.createElement('div');
     tooltip.className = 'siege-castle-tooltip';
@@ -4657,6 +5695,7 @@ ${legendMarkup}
 
         initProjectStats();
         initKeepEnhancements();
+        leaderboardRanking.displayRankInNavbar();
         navigationTimeout = null;
       }, 300);
     }
@@ -4666,6 +5705,14 @@ ${legendMarkup}
   document.addEventListener('turbo:render', handleNavigation);
   document.addEventListener('turbo:visit', handleNavigation);
   document.addEventListener('turbo:frame-load', handleNavigation);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => leaderboardRanking.displayRankInNavbar(), 500);
+    });
+  } else {
+    setTimeout(() => leaderboardRanking.displayRankInNavbar(), 500);
+  }
 
   document.addEventListener('turbolinks:load', handleNavigation);
   document.addEventListener('turbolinks:render', handleNavigation);
@@ -4729,13 +5776,15 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
   const existingCustomStyle = document.getElementById('siege-utils-custom');
   const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
-  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal' || theme === 'spooky') {
+  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal' || theme === 'spooky' || theme === 'winter') {
 
     let cssFile = 'catppuccin.css';
     if (theme === 'signal') {
       cssFile = 'signal.css';
     } else if (theme === 'spooky') {
       cssFile = 'spooky.css';
+    } else if (theme === 'winter') {
+      cssFile = 'winter.css';
     }
 
     const cssUrl = browserAPI.runtime.getURL(cssFile);
@@ -4827,316 +5876,6 @@ function toggleHues(disable) {
   }
 }
 
-function ensureSpookyJumpScareStyle() {
-  if (document.getElementById('siege-spooky-jumpscare-style')) {
-    return;
-  }
-
-  const style = document.createElement('style');
-  style.id = 'siege-spooky-jumpscare-style';
-  style.textContent = `
-    @keyframes siege-spooky-jumpscare-pop {
-      0% {
-        transform: scale(0.1) rotate(0deg);
-        opacity: 0;
-        filter: blur(20px) brightness(0);
-      }
-      5% {
-        transform: scale(2.5) rotate(-8deg);
-        opacity: 1;
-        filter: blur(0px) brightness(2);
-      }
-      15% {
-        transform: scale(1.8) rotate(5deg);
-        filter: blur(0px) brightness(1.5);
-      }
-      25% {
-        transform: scale(2.2) rotate(-3deg);
-        filter: blur(0px) brightness(1.8);
-      }
-      100% {
-        transform: scale(2) rotate(0deg);
-        opacity: 1;
-        filter: blur(0px) brightness(1.5);
-      }
-    }
-
-    @keyframes siege-spooky-shake {
-      0%, 100% { transform: translate(0, 0) rotate(0deg); }
-      10% { transform: translate(-8px, 8px) rotate(-2deg); }
-      20% { transform: translate(8px, -8px) rotate(2deg); }
-      30% { transform: translate(-8px, -8px) rotate(-1deg); }
-      40% { transform: translate(8px, 8px) rotate(1deg); }
-      50% { transform: translate(-8px, 8px) rotate(-2deg); }
-      60% { transform: translate(8px, -8px) rotate(2deg); }
-      70% { transform: translate(-8px, -8px) rotate(-1deg); }
-      80% { transform: translate(8px, 8px) rotate(1deg); }
-      90% { transform: translate(-4px, 4px) rotate(0deg); }
-    }
-
-    @keyframes siege-spooky-glitch {
-      0%, 100% { clip-path: inset(0 0 0 0); }
-      20% { clip-path: inset(20% 0 30% 0); transform: translateX(-5px); }
-      40% { clip-path: inset(50% 0 10% 0); transform: translateX(5px); }
-      60% { clip-path: inset(10% 0 60% 0); transform: translateX(-3px); }
-      80% { clip-path: inset(40% 0 20% 0); transform: translateX(3px); }
-    }
-
-    #siege-spooky-jumpscare {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-      opacity: 0;
-      background: rgba(0, 0, 0, 0);
-      transition: none;
-      z-index: 2147483646;
-      animation: siege-spooky-shake 0.4s ease-in-out;
-    }
-
-    #siege-spooky-jumpscare.is-visible {
-      opacity: 1;
-      background: rgba(0, 0, 0, 0.98);
-    }
-
-    #siege-spooky-jumpscare.is-fading {
-      opacity: 0;
-      transition: opacity 800ms ease;
-    }
-
-    #siege-spooky-jumpscare .siege-spooky-jumpscare-inner {
-      font-size: clamp(6rem, 20vw, 18rem);
-      color: #ff0000;
-      text-shadow:
-        0 0 40px rgba(255, 0, 0, 1),
-        0 0 80px rgba(255, 0, 0, 0.8),
-        0 0 120px rgba(150, 0, 0, 0.6),
-        0 5px 30px rgba(0, 0, 0, 0.9);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-      transform-origin: center;
-      letter-spacing: 0.15em;
-      font-weight: 900;
-      filter: drop-shadow(0 0 40px rgba(255, 0, 0, 0.8));
-      font-family: 'Impact', 'Arial Black', sans-serif;
-    }
-
-    #siege-spooky-jumpscare .siege-spooky-jumpscare-emoji {
-      font-size: clamp(8rem, 25vw, 22rem);
-      filter: drop-shadow(0 0 60px rgba(255, 0, 0, 0.9));
-      animation: siege-spooky-glitch 0.2s infinite;
-    }
-
-    #siege-spooky-jumpscare .siege-spooky-jumpscare-text {
-      font-size: clamp(4rem, 15vw, 12rem);
-      color: #ff0000;
-      text-shadow:
-        0 0 30px rgba(255, 0, 0, 1),
-        0 0 60px rgba(255, 0, 0, 0.8),
-        3px 3px 0 #000,
-        -3px -3px 0 #000,
-        3px -3px 0 #000,
-        -3px 3px 0 #000;
-      animation: siege-spooky-glitch 0.15s infinite;
-      letter-spacing: 0.2em;
-    }
-
-    #siege-spooky-jumpscare::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background:
-        repeating-linear-gradient(
-          0deg,
-          transparent,
-          transparent 2px,
-          rgba(255, 0, 0, 0.03) 2px,
-          rgba(255, 0, 0, 0.03) 4px
-        );
-      pointer-events: none;
-      animation: siege-spooky-glitch 0.3s infinite;
-    }
-
-    #siege-spooky-jumpscare::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(circle, rgba(255, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0) 70%);
-      opacity: 1;
-      animation: pulse 0.1s infinite alternate;
-    }
-
-    @keyframes pulse {
-      from { opacity: 0.6; }
-      to { opacity: 1; }
-    }
-
-    @keyframes blood-drip {
-      0% {
-        transform: translateY(-100vh) scaleY(0);
-        opacity: 0;
-      }
-      10% {
-        opacity: 1;
-      }
-      100% {
-        transform: translateY(100vh) scaleY(3);
-        opacity: 0.8;
-      }
-    }
-
-    @keyframes spider-crawl {
-      0% {
-        transform: translateY(-100px) rotate(0deg);
-        opacity: 0;
-      }
-      10% {
-        opacity: 1;
-      }
-      100% {
-        transform: translateY(100vh) rotate(720deg);
-        opacity: 0.8;
-      }
-    }
-
-    @keyframes static-noise {
-      0%, 100% {
-        background-position: 0 0;
-        opacity: 0.1;
-      }
-      50% {
-        background-position: 100% 100%;
-        opacity: 0.3;
-      }
-    }
-
-    @keyframes intense-shake {
-      0%, 100% { transform: translate(0, 0) rotate(0deg); }
-      10% { transform: translate(-15px, 10px) rotate(-3deg); }
-      20% { transform: translate(15px, -15px) rotate(3deg); }
-      30% { transform: translate(-10px, -12px) rotate(-2deg); }
-      40% { transform: translate(12px, 15px) rotate(2deg); }
-      50% { transform: translate(-15px, 10px) rotate(-3deg); }
-      60% { transform: translate(15px, -10px) rotate(3deg); }
-      70% { transform: translate(-12px, -15px) rotate(-2deg); }
-      80% { transform: translate(10px, 12px) rotate(2deg); }
-      90% { transform: translate(-8px, 8px) rotate(0deg); }
-    }
-
-    .siege-blood-splatter {
-      position: absolute;
-      inset: 0;
-      background:
-        radial-gradient(circle at 30% 40%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.7) 50%, transparent 70%),
-        radial-gradient(circle at 70% 60%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.6) 50%, transparent 70%),
-        radial-gradient(circle at 50% 20%, rgba(139, 0, 0, 0) 0%, rgba(139, 0, 0, 0.8) 50%, transparent 70%);
-      opacity: 0;
-      animation: blood-appear 0.3s ease-out forwards;
-      pointer-events: none;
-    }
-
-    @keyframes blood-appear {
-      0% {
-        opacity: 0;
-        transform: scale(0.5);
-      }
-      50% {
-        opacity: 1;
-      }
-      100% {
-        opacity: 0.9;
-        transform: scale(1.5);
-      }
-    }
-
-    .siege-blood-splatter::before {
-      content: '';
-      position: absolute;
-      width: 100%;
-      height: 200%;
-      top: 0;
-      left: 0;
-      background: linear-gradient(180deg, transparent 0%, rgba(139, 0, 0, 0.9) 10%, transparent 100%);
-      animation: blood-drip 1.5s ease-in forwards;
-    }
-
-    .siege-spider {
-      position: absolute;
-      font-size: 3rem;
-      top: -100px;
-      animation: spider-crawl 3s linear forwards;
-      filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.8));
-    }
-
-    #siege-spooky-jumpscare[data-type="blood"] {
-      background: rgba(20, 0, 0, 0.98) !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="blood"] .siege-spooky-jumpscare-inner {
-      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, blood-pulse 0.5s ease-in-out infinite !important;
-    }
-
-    @keyframes blood-pulse {
-      0%, 100% {
-        filter: drop-shadow(0 0 40px rgba(139, 0, 0, 0.8)) brightness(1);
-      }
-      50% {
-        filter: drop-shadow(0 0 80px rgba(139, 0, 0, 1)) brightness(1.3);
-      }
-    }
-
-    #siege-spooky-jumpscare[data-type="glitch"]::before {
-      animation: siege-spooky-glitch 0.1s infinite !important;
-      background:
-        repeating-linear-gradient(
-          0deg,
-          transparent,
-          transparent 1px,
-          rgba(255, 0, 0, 0.1) 1px,
-          rgba(255, 0, 0, 0.1) 2px
-        );
-    }
-
-    #siege-spooky-jumpscare[data-type="glitch"] .siege-spooky-jumpscare-inner {
-      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, siege-spooky-glitch 0.1s infinite !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="static"]::before {
-      background:
-        repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 4px),
-        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 4px);
-      animation: static-noise 0.2s infinite !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="static"] {
-      background: rgba(15, 15, 15, 0.98) !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="static"] .siege-spooky-jumpscare-emoji {
-      filter: drop-shadow(0 0 60px rgba(255, 255, 255, 0.5)) contrast(1.5) !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="shake"] {
-      animation: intense-shake 0.5s ease-in-out infinite !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="shake"] .siege-spooky-jumpscare-inner {
-      animation: siege-spooky-jumpscare-pop 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards, intense-shake 0.3s ease-in-out infinite !important;
-    }
-
-    #siege-spooky-jumpscare[data-type="crawl"] {
-      background: rgba(10, 5, 0, 0.98) !important;
-    }
-  `;
-
-  document.head.appendChild(style);
-}
-
 function getPageSpecificJumpscare() {
   const path = window.location.pathname;
 
@@ -5180,7 +5919,6 @@ function getPageSpecificJumpscare() {
 }
 
 function showSpookyJumpScare() {
-  ensureSpookyJumpScareStyle();
 
   if (!document.body || document.getElementById('siege-spooky-jumpscare')) {
     return;
@@ -5245,7 +5983,6 @@ function queueSpookyJumpScare() {
     return;
   }
 
-  ensureSpookyJumpScareStyle();
 
   if (spookyJumpScareCount >= MAX_SPOOKY_JUMPSCARES || spookyJumpScareTimeout || document.getElementById('siege-spooky-jumpscare')) {
     return;
@@ -5380,135 +6117,6 @@ function showSpookyAudioPrompt() {
     return;
   }
 
-  const promptStyle = document.createElement('style');
-  promptStyle.id = 'siege-spooky-audio-prompt-style';
-  promptStyle.textContent = `
-    @keyframes spooky-prompt-appear {
-      0% {
-        opacity: 0;
-        transform: scale(0.5) rotate(-5deg);
-      }
-      50% {
-        transform: scale(1.1) rotate(2deg);
-      }
-      100% {
-        opacity: 1;
-        transform: scale(1) rotate(0deg);
-      }
-    }
-
-    @keyframes spooky-prompt-pulse {
-      0%, 100% {
-        box-shadow: 0 0 30px rgba(255, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.5);
-        transform: scale(1);
-      }
-      50% {
-        box-shadow: 0 0 60px rgba(255, 0, 0, 1), inset 0 0 50px rgba(0, 0, 0, 0.7);
-        transform: scale(1.02);
-      }
-    }
-
-    @keyframes spooky-prompt-glitch {
-      0%, 100% { transform: translate(0, 0); }
-      20% { transform: translate(-2px, 2px); }
-      40% { transform: translate(2px, -2px); }
-      60% { transform: translate(-2px, -2px); }
-      80% { transform: translate(2px, 2px); }
-    }
-
-    #siege-spooky-audio-prompt {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 2147483647;
-      background: linear-gradient(135deg, #1a0000 0%, #000000 100%);
-      border: 3px solid #ff0000;
-      padding: 3rem 4rem;
-      border-radius: 8px;
-      text-align: center;
-      animation: spooky-prompt-appear 0.5s ease-out, spooky-prompt-pulse 2s ease-in-out infinite;
-      box-shadow: 0 0 30px rgba(255, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.5);
-    }
-
-    #siege-spooky-audio-prompt::before {
-      content: '';
-      position: absolute;
-      inset: -5px;
-      background: linear-gradient(45deg, transparent 30%, rgba(255, 0, 0, 0.3) 50%, transparent 70%);
-      border-radius: 10px;
-      animation: spooky-prompt-glitch 0.5s infinite;
-      pointer-events: none;
-    }
-
-    .spooky-prompt-title {
-      font-size: 2.5rem;
-      color: #ff0000;
-      font-weight: 900;
-      margin-bottom: 1.5rem;
-      text-shadow:
-        0 0 20px rgba(255, 0, 0, 1),
-        0 0 40px rgba(255, 0, 0, 0.8),
-        3px 3px 0 #000,
-        -3px -3px 0 #000;
-      font-family: 'Impact', 'Arial Black', sans-serif;
-      letter-spacing: 0.1em;
-      animation: spooky-prompt-glitch 0.3s infinite;
-    }
-
-    .spooky-prompt-text {
-      font-size: 1.2rem;
-      color: #ff6666;
-      margin-bottom: 2rem;
-      text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
-      font-weight: 600;
-    }
-
-    .spooky-prompt-button {
-      background: linear-gradient(135deg, #cc0000 0%, #660000 100%);
-      color: #ffffff;
-      border: 2px solid #ff0000;
-      padding: 1rem 3rem;
-      font-size: 1.5rem;
-      font-weight: 900;
-      border-radius: 4px;
-      cursor: pointer;
-      text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
-      box-shadow: 0 0 20px rgba(255, 0, 0, 0.6), inset 0 0 10px rgba(0, 0, 0, 0.5);
-      transition: all 0.3s ease;
-      font-family: 'Impact', 'Arial Black', sans-serif;
-      letter-spacing: 0.05em;
-    }
-
-    .spooky-prompt-button:hover {
-      background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
-      box-shadow: 0 0 40px rgba(255, 0, 0, 1), inset 0 0 20px rgba(0, 0, 0, 0.7);
-      transform: scale(1.05);
-    }
-
-    .spooky-prompt-button:active {
-      transform: scale(0.95);
-    }
-
-    .spooky-prompt-warning {
-      font-size: 0.9rem;
-      color: #cc4444;
-      margin-top: 1rem;
-      font-style: italic;
-      text-shadow: 0 0 5px rgba(255, 0, 0, 0.3);
-    }
-
-    #siege-spooky-audio-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.95);
-      z-index: 2147483646;
-      animation: spooky-prompt-appear 0.3s ease-out;
-    }
-  `;
-
-  document.head.appendChild(promptStyle);
-
   const backdrop = document.createElement('div');
   backdrop.id = 'siege-spooky-audio-backdrop';
 
@@ -5539,7 +6147,6 @@ function showSpookyAudioPrompt() {
     window.setTimeout(() => {
       prompt.remove();
       backdrop.remove();
-      promptStyle.remove();
 
       startSpookyBackgroundAudio();
       playSpookyScream();
@@ -5890,17 +6497,6 @@ function createVotingInterface(votes, ballotId) {
 
     const votingContainer = document.createElement('div');
     votingContainer.id = 'siege-simple-voting';
-    votingContainer.style.cssText = `
-      padding: 2rem;
-      padding-left: 22rem;
-      max-width: 1800px;
-      margin: 0 auto;
-      position: relative;
-      z-index: 10000;
-      min-height: 100vh;
-      display: block !important;
-      visibility: visible !important;
-    `;
 
     const starAllocations = {};
     votes.forEach(vote => {
@@ -6223,121 +6819,6 @@ const bettingAPI = {
   }
 };
 
-const bettingPredictor = {
-  predictPersonalHours(weeklyHoursArray) {
-    if (!weeklyHoursArray || weeklyHoursArray.length === 0) {
-      return { prediction: 10, confidence: 0, decayRate: 0, consistency: 0 };
-    }
-
-    const alpha = 0.4;
-    let ewma = weeklyHoursArray[0];
-
-    for (let i = 1; i < weeklyHoursArray.length; i++) {
-      ewma = alpha * weeklyHoursArray[i] + (1 - alpha) * ewma;
-    }
-
-    let decayRate = 0;
-    if (weeklyHoursArray.length >= 4) {
-      const recent = (weeklyHoursArray[weeklyHoursArray.length - 1] + weeklyHoursArray[weeklyHoursArray.length - 2]) / 2;
-      const previous = (weeklyHoursArray[weeklyHoursArray.length - 3] + weeklyHoursArray[weeklyHoursArray.length - 4]) / 2;
-      decayRate = previous > 0 ? (recent - previous) / previous : 0;
-    }
-
-    const mean = weeklyHoursArray.reduce((a, b) => a + b, 0) / weeklyHoursArray.length;
-    const variance = weeklyHoursArray.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeklyHoursArray.length;
-    const stdDev = Math.sqrt(variance);
-    const consistency = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
-
-    const prediction = ewma * (1 + decayRate * 0.2);
-
-    const dataConfidence = Math.min(weeklyHoursArray.length / 5, 1);
-    const confidence = dataConfidence * consistency;
-
-    return {
-      prediction: Math.max(0, prediction),
-      confidence,
-      decayRate,
-      consistency,
-      mean,
-      stdDev
-    };
-  },
-
-  generatePersonalSuggestions(prediction) {
-    const base = prediction.prediction;
-
-    return {
-      conservative: {
-        label: 'Conservative',
-        hours: Math.round(base * 0.75 * 2) / 2,
-        multiplier: 1.5,
-        winProbability: this.calculateWinProbability(base * 0.75, prediction)
-      },
-      moderate: {
-        label: 'Moderate',
-        hours: Math.round(base * 0.90 * 2) / 2,
-        multiplier: 2.0,
-        winProbability: this.calculateWinProbability(base * 0.90, prediction)
-      },
-      aggressive: {
-        label: 'Aggressive',
-        hours: Math.round(base * 1.10 * 2) / 2,
-        multiplier: 2.5,
-        winProbability: this.calculateWinProbability(base * 1.10, prediction)
-      }
-    };
-  },
-
-  calculateWinProbability(goalHours, prediction) {
-    if (prediction.stdDev === 0) return goalHours <= prediction.prediction ? 0.9 : 0.1;
-
-    const z = (goalHours - prediction.prediction) / prediction.stdDev;
-
-    const probability = this.normalCDF(-z);
-
-    return Math.max(0.01, Math.min(0.99, probability));
-  },
-
-  normalCDF(x) {
-    const t = 1 / (1 + 0.2316419 * Math.abs(x));
-    const d = 0.3989423 * Math.exp(-x * x / 2);
-    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-    return x > 0 ? 1 - p : p;
-  },
-
-  predictGlobalHours(weeklyStatsMap, currentWeek) {
-    if (!weeklyStatsMap || weeklyStatsMap.size === 0) {
-      return { prediction: 1000, confidence: 0, trend: 'unknown' };
-    }
-
-    const weeks = Array.from(weeklyStatsMap.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([week, stats]) => stats.totalHours);
-
-    if (weeks.length === 0) {
-      return { prediction: 1000, confidence: 0, trend: 'unknown' };
-    }
-
-    const recentWeeks = weeks.slice(-3);
-    const prediction = recentWeeks.reduce((a, b) => a + b, 0) / recentWeeks.length;
-
-    let trend = 'stable';
-    if (weeks.length >= 3) {
-      const recent = weeks[weeks.length - 1];
-      const previous = weeks[weeks.length - 2];
-      if (recent > previous * 1.1) trend = 'increasing';
-      else if (recent < previous * 0.9) trend = 'decreasing';
-    }
-
-    const mean = weeks.reduce((a, b) => a + b, 0) / weeks.length;
-    const variance = weeks.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / weeks.length;
-    const stdDev = Math.sqrt(variance);
-    const confidence = mean > 0 ? Math.max(0, 1 - (stdDev / mean)) : 0;
-
-    return { prediction, confidence, trend };
-  }
-};
-
 const bettingSimulator = {
   calculateMultiplier(goalHours, predictedHours) {
     if (predictedHours === 0) return 1.5;
@@ -6412,8 +6893,98 @@ const bettingSimulator = {
   }
 };
 
+const leaderboardRanking = {
+  CACHE_DURATION: 36 * 60 * 60 * 1000,
+  CACHE_KEY: 'siege_leaderboard_cache',
+
+  async getCurrentUserRank() {
+    const now = Date.now();
+    const cachedData = localStorage.getItem(this.CACHE_KEY);
+
+    if (cachedData) {
+      try {
+        const { data, timestamp } = JSON.parse(cachedData);
+        if ((now - timestamp) < this.CACHE_DURATION) {
+          return data;
+        }
+      } catch (e) {
+        console.error('[Leaderboard] Cache parse error:', e);
+      }
+    }
+
+    const userNameElement = document.querySelector('.navbar .user-name');
+    if (!userNameElement) return null;
+
+    const currentUserName = userNameElement.textContent.trim();
+    const currentWeek = utils.getCurrentWeek();
+
+    try {
+      const response = await new Promise((resolve) => {
+        const isFirefox = typeof browser !== 'undefined';
+        const browserAPI = isFirefox ? browser : chrome;
+
+        browserAPI.runtime.sendMessage({
+          action: 'fetchLeaderboard',
+          currentWeek: currentWeek,
+          userName: currentUserName
+        }, (response) => {
+          resolve(response);
+        });
+      });
+
+      if (response && response.success) {
+        localStorage.setItem(this.CACHE_KEY, JSON.stringify({
+          data: response.data,
+          timestamp: now
+        }));
+        return response.data;
+      } else {
+        console.error('[Leaderboard] Failed:', response?.error);
+        return null;
+      }
+    } catch (error) {
+      console.error('[Leaderboard] Error:', error);
+      return null;
+    }
+  },
+
+  async displayRankInNavbar() {
+    const userNameElement = document.querySelector('.navbar .user-name');
+    if (!userNameElement) return;
+
+    const existingRank = document.querySelector('.siege-user-rank');
+    if (existingRank) existingRank.remove();
+
+    const rankData = await this.getCurrentUserRank();
+    if (!rankData) return;
+
+    const rankElement = document.createElement('div');
+    rankElement.className = 'siege-user-rank';
+    rankElement.innerHTML = `
+      <div class="siege-rank-container" style="
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.35rem;
+        font-size: 0.875rem;
+      ">
+        <span class="siege-rank-badge" style="
+          padding: 0.25rem 0.6rem;
+          border-radius: 0.375rem;
+          font-weight: 700;
+          font-size: 0.8rem;
+        ">
+          #${rankData.rank}/ ${rankData.totalUsers}
+        </span>
+      </div>
+    `;
+
+    userNameElement.parentElement.appendChild(rankElement);
+  }
+};
+
 const catacombsIntelPanel = {
-  currentTab: 'bets',
+  currentTab: 'personal',
   userData: null,
   shopData: null,
   progressData: null,
@@ -6428,33 +6999,26 @@ const catacombsIntelPanel = {
 
         <div class="catacombs-header">
           <h1 class="catacombs-title">Catacombs Intelligence</h1>
-          <p class="catacombs-subtitle">Strategic insights and analytics for the shadowy depths</p>
+          <p class="catacombs-subtitle">Strategic insights and analytics</p>
         </div>
 
         <div class="catacombs-tabs">
-          <button class="catacombs-tab active" data-tab="bets">
-            <span class="tab-icon">📊</span>
-            <span class="tab-label">Bets & Analytics</span>
+          <button class="catacombs-tab active" data-tab="personal">
+            <span class="tab-icon">👤</span>
+            <span class="tab-label">Personal Bets</span>
           </button>
-          <button class="catacombs-tab" data-tab="shop">
-            <span class="tab-icon">🛒</span>
-            <span class="tab-label">Shop</span>
-          </button>
-          <button class="catacombs-tab" data-tab="secrets">
-            <span class="tab-icon">🔮</span>
-            <span class="tab-label">Secrets</span>
+          <button class="catacombs-tab" data-tab="global">
+            <span class="tab-icon">🌐</span>
+            <span class="tab-label">Global Bets</span>
           </button>
         </div>
 
         <div class="catacombs-content-card">
-          <div class="catacombs-tab-content active" id="tab-bets">
-            <div class="loading-state">Loading betting info...</div>
+          <div class="catacombs-tab-content active" id="tab-personal">
+            <div class="loading-state">Loading...</div>
           </div>
-          <div class="catacombs-tab-content" id="tab-shop">
-            <div class="loading-state">Loading shop...</div>
-          </div>
-          <div class="catacombs-tab-content" id="tab-secrets">
-            <div class="loading-state">Loading secrets...</div>
+          <div class="catacombs-tab-content" id="tab-global">
+            <div class="loading-state">Loading...</div>
           </div>
         </div>
       </div>
@@ -6502,8 +7066,17 @@ const catacombsIntelPanel = {
       closeBtn.addEventListener('click', () => {
         const panel = document.getElementById('siege-catacombs-intel');
         if (panel) {
-          panel.style.display = 'none';
+          panel.remove();
         }
+        const mystereepleDialogue = document.querySelector('.mystereeple-dialogue');
+        const hoverOverlay = document.querySelector('.hover-overlay');
+        if (mystereepleDialogue) {
+          mystereepleDialogue.style.display = '';
+        }
+        if (hoverOverlay) {
+          hoverOverlay.style.display = '';
+        }
+        this.initialized = false;
       });
     }
   },
@@ -6519,7 +7092,7 @@ const catacombsIntelPanel = {
       content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
 
-    if (this.dataLoaded || tabName === 'secrets') {
+    if (this.dataLoaded) {
       this.renderCurrentTab();
     }
   },
@@ -6551,20 +7124,17 @@ const catacombsIntelPanel = {
 
   renderCurrentTab() {
     switch (this.currentTab) {
-      case 'bets':
-        this.renderBetsTab();
+      case 'personal':
+        this.renderPersonalTab();
         break;
-      case 'shop':
-        this.renderShopTab();
-        break;
-      case 'secrets':
-        this.renderSecretsTab();
+      case 'global':
+        this.renderGlobalTab();
         break;
     }
   },
 
-  async renderBetsTab() {
-    const container = document.getElementById('tab-bets');
+  async renderPersonalTab() {
+    const container = document.getElementById('tab-personal');
     if (!container) return;
 
     if (!this.dataLoaded || !this.progressData) {
@@ -6572,7 +7142,7 @@ const catacombsIntelPanel = {
       return;
     }
 
-    const { personal_hours = 0, global_hours = 0 } = this.progressData;
+    const { personal_hours = 0 } = this.progressData;
 
     let selectedBetHours = 0;
     let betAmount = 0;
@@ -6602,40 +7172,11 @@ const catacombsIntelPanel = {
       }
     }
 
-    let hoursPrediction = 0;
-    let globalBetAmount = 0;
-    let globalMultiplier = 1.5;
-    let hasGlobalBet = false;
+    let html = '<div class="dashboard-grid">';
 
-    const globalBetInfo = document.querySelector('#global-betting-content .bet-info');
-    if (globalBetInfo) {
-      hasGlobalBet = true;
+    const personalRec = await this.getPersonalBetRecommendation();
 
-      const predictionText = globalBetInfo.querySelector('.global-stat:nth-child(1) .global-stat-value')?.textContent;
-      if (predictionText) {
-        hoursPrediction = parseFloat(predictionText) || 0;
-      }
-
-      const coinsText = globalBetInfo.querySelector('.global-stat:nth-child(2) .global-stat-value')?.textContent;
-      if (coinsText) {
-        globalBetAmount = parseInt(coinsText) || 0;
-      }
-
-      const payoutText = globalBetInfo.querySelector('.global-payout .global-payout-value')?.textContent;
-      if (payoutText) {
-        const payout = parseInt(payoutText) || 0;
-        if (globalBetAmount > 0) {
-          globalMultiplier = payout / globalBetAmount;
-        }
-      }
-    }
-
-    let html = `
-
-      <div class="dashboard-grid">
-    `;
-
-    if (hasPersonalBet && selectedBetHours > 0) {  
+    if (hasPersonalBet && selectedBetHours > 0) {
       const progressPercent = Math.min((personal_hours / selectedBetHours) * 100, 100);
       const payout = Math.floor(betAmount * selectedBetMultiplier);
 
@@ -6664,8 +7205,6 @@ const catacombsIntelPanel = {
         </div>
       `;
     } else {
-      const personalRec = await this.getPersonalBetRecommendation();
-
       html += `
         <div class="dashboard-card">
           <h3>🎯 Personal Bet</h3>
@@ -6697,6 +7236,90 @@ const catacombsIntelPanel = {
       `;
     }
 
+    if (personalRec && personalRec.weekLabels && personalRec.historicalValues && personalRec.weekLabels.length >= 2) {
+      html += `
+        <div class="dashboard-card">
+          <h3>📈 Personal History</h3>
+          <div class="chart-container">
+            <div class="chart-loading">Loading chart...</div>
+            <canvas id="personal-chart"></canvas>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="dashboard-card">
+          <h3>📈 Personal History</h3>
+          <div style="padding: 2rem; text-align: center; color: rgba(200, 200, 210, 0.7); font-size: 0.9rem;">
+            <p>Not enough data yet. Complete projects for at least 2 weeks to see your history chart!</p>
+          </div>
+        </div>
+      `;
+    }
+
+    html += '</div>';
+
+    container.innerHTML = html;
+
+    if (!hasPersonalBet) {
+      const placeBetBtn = document.getElementById('place-bet-btn');
+      if (placeBetBtn) {
+        placeBetBtn.addEventListener('click', () => this.placePersonalBet());
+      }
+    }
+
+    if (personalRec && personalRec.weekLabels && personalRec.historicalValues && personalRec.weekLabels.length >= 2) {
+      setTimeout(() => {
+        document.querySelectorAll('.chart-loading').forEach(el => el.style.display = 'none');
+        this.renderPersonalChart('personal-chart', personalRec.weekLabels, personalRec.historicalValues);
+      }, 100);
+    }
+  },
+
+  async renderGlobalTab() {
+    const container = document.getElementById('tab-global');
+    if (!container) return;
+
+    if (!this.dataLoaded || !this.progressData) {
+      container.innerHTML = '<div class="loading-state">Loading...</div>';
+      return;
+    }
+
+    const { global_hours = 0 } = this.progressData;
+
+    let hoursPrediction = 0;
+    let globalBetAmount = 0;
+    let globalMultiplier = 1.5;
+    let hasGlobalBet = false;
+
+    const globalBetInfo = document.querySelector('#global-betting-content .bet-info');
+    if (globalBetInfo) {
+      hasGlobalBet = true;
+
+      const predictionText = globalBetInfo.querySelector('.global-stat:nth-child(1) .global-stat-value')?.textContent;
+      if (predictionText) {
+        hoursPrediction = parseFloat(predictionText) || 0;
+      }
+
+      const coinsText = globalBetInfo.querySelector('.global-stat:nth-child(2) .global-stat-value')?.textContent;
+      if (coinsText) {
+        globalBetAmount = parseInt(coinsText) || 0;
+      }
+
+      const payoutText = globalBetInfo.querySelector('.global-payout .global-payout-value')?.textContent;
+      if (payoutText) {
+        const payout = parseInt(payoutText) || 0;
+        if (globalBetAmount > 0) {
+          globalMultiplier = payout / globalBetAmount;
+        }
+      }
+    }
+
+    let html = '<div class="dashboard-grid">';
+
+    const globalPred = await this.getGlobalBetPrediction();
+    this.cachedGlobalPrediction = globalPred;
+
     if (hasGlobalBet && hoursPrediction > 0) {
       const progressPercent = Math.min((global_hours / hoursPrediction) * 100, 100);
       const payout = Math.floor(globalBetAmount * globalMultiplier);
@@ -6726,8 +7349,6 @@ const catacombsIntelPanel = {
         </div>
       `;
     } else {
-      const globalPred = await this.getGlobalBetPrediction();
-
       html += `
         <div class="dashboard-card">
           <h3>🌍 Global Bet</h3>
@@ -6823,65 +7444,137 @@ const catacombsIntelPanel = {
             <input type="number" class="bet-form-input" id="global-hours-prediction" value="${globalPred ? globalPred.expected : 1000}" min="1" max="5000">
           </div>
           <div class="bet-form-group">
+            <label class="bet-form-label">Multiplier</label>
+            <div style="padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 4px; border: 1px solid rgba(80, 80, 100, 0.3);">
+              <span style="font-size: 1.1rem; font-weight: 600; color: #f59e0b;" id="global-multiplier-display">${globalPred && globalPred.riskStats && globalPred.riskStats.expectedMultiplier ? (typeof globalPred.riskStats.expectedMultiplier === 'number' ? globalPred.riskStats.expectedMultiplier.toFixed(2) : parseFloat(globalPred.riskStats.expectedMultiplier).toFixed(2)) : '1.50'}x</span>
+            </div>
+          </div>
+          <div class="bet-form-group">
             <label class="bet-form-label">Bet Amount (max 200)</label>
             <input type="number" class="bet-form-input" id="global-bet-amount" value="25" min="1" max="200">
+          </div>
+          <div style="text-align: center; margin-bottom: 1rem; font-size: 1.1rem;">
+            <span style="color: rgba(200, 200, 210, 0.7);">Estimated payout: </span>
+            <span style="font-weight: 600; color: #10b981;" id="global-payout-display">${globalPred && globalPred.riskStats && globalPred.riskStats.expectedMultiplier ? Math.round(25 * (typeof globalPred.riskStats.expectedMultiplier === 'number' ? globalPred.riskStats.expectedMultiplier : parseFloat(globalPred.riskStats.expectedMultiplier))) : 38}</span>
+            <span style="color: rgba(200, 200, 210, 0.7);"> coins</span>
           </div>
           <button class="intel-button" id="place-global-bet-btn">Place Global Bet</button>
         </div>
       `;
     }
 
-    html += `
-      </div>
-    `;
-
-    html += `
-      <h3 style="margin: 1.2rem 0 0.8rem 0; color: #e8e8f0; font-size: 1.15rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">📊 Analytics & Insights</h3>
-      <div class="dashboard-grid">
-        <div class="dashboard-card">
-          <h3>📈 Personal History</h3>
-          <div class="chart-container">
-            <canvas id="personal-chart"></canvas>
-          </div>
-        </div>
+    if (globalPred && globalPred.weekLabels && globalPred.historicalValues) {
+      html += `
         <div class="dashboard-card">
           <h3>🌍 Global Predictions</h3>
           <div class="chart-container">
+            <div class="chart-loading">Loading chart...</div>
             <canvas id="global-chart"></canvas>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    }
+
+    html += '</div>';
 
     container.innerHTML = html;
-
-    if (!hasPersonalBet) {
-      const placeBetBtn = document.getElementById('place-bet-btn');
-      if (placeBetBtn) {
-        placeBetBtn.addEventListener('click', () => this.placePersonalBet());
-      }
-    }
 
     if (!hasGlobalBet) {
       const placeGlobalBetBtn = document.getElementById('place-global-bet-btn');
       if (placeGlobalBetBtn) {
         placeGlobalBetBtn.addEventListener('click', () => this.placeGlobalBet());
       }
+
+      const hoursPredictionInput = document.getElementById('global-hours-prediction');
+      const betAmountInput = document.getElementById('global-bet-amount');
+
+      if (hoursPredictionInput) {
+        hoursPredictionInput.addEventListener('input', (e) => {
+          this.updateGlobalPrediction(e.target.value);
+        });
+      }
+
+      if (betAmountInput) {
+        betAmountInput.addEventListener('input', (e) => {
+          this.updateGlobalBetAmount(e.target.value);
+        });
+      }
     }
 
-    setTimeout(async () => {
-      const personalRec = await this.getPersonalBetRecommendation();
-      const globalPred = await this.getGlobalBetPrediction();
-
-      if (personalRec && personalRec.weekLabels && personalRec.historicalValues) {
-        this.renderPersonalChart('personal-chart', personalRec.weekLabels, personalRec.historicalValues);
-      }
-
-      if (globalPred && globalPred.weekLabels && globalPred.historicalValues) {
+    if (globalPred && globalPred.weekLabels && globalPred.historicalValues) {
+      setTimeout(() => {
+        document.querySelectorAll('.chart-loading').forEach(el => el.style.display = 'none');
         this.renderGlobalChart('global-chart', globalPred.weekLabels, globalPred.historicalValues, globalPred.algorithms);
-      }
-    }, 100);
+      }, 100);
+    }
+  },
 
+  updateNumber(element, targetValue, isMultiplier = false) {
+    if (!element) return;
+
+    const allWithSameId = document.querySelectorAll(`#${element.id}`);
+
+    allWithSameId.forEach((el) => {
+      if (isMultiplier) {
+        el.textContent = targetValue.toFixed(2) + 'x';
+      } else {
+        el.textContent = Math.round(targetValue).toString();
+      }
+    });
+  },
+
+  updateGlobalPrediction(predictedHours) {
+    const globalPrediction = this.cachedGlobalPrediction;
+
+    if (!globalPrediction) {
+      return;
+    }
+
+    if (!globalPrediction.historicalValues || globalPrediction.historicalValues.length < 1) {
+      const displayElement = document.getElementById('global-multiplier-display');
+      if (displayElement) {
+        displayElement.textContent = '1.50x';
+      }
+      this.updateGlobalPayout(1.50);
+      return;
+    }
+
+    const lastWeekHours = globalPrediction.historicalValues.length >= 2
+      ? globalPrediction.historicalValues[globalPrediction.historicalValues.length - 2]
+      : globalPrediction.historicalValues[globalPrediction.historicalValues.length - 1];
+
+    const multiplier = this.calculateGlobalMultiplier(parseFloat(predictedHours), lastWeekHours);
+
+    const displayElement = document.getElementById('global-multiplier-display');
+    if (displayElement) {
+      this.updateNumber(displayElement, multiplier, true);
+    }
+
+    this.updateGlobalPayout(multiplier);
+  },
+
+  updateGlobalBetAmount(betAmount) {
+    const multiplierText = document.getElementById('global-multiplier-display')?.textContent;
+    if (multiplierText) {
+      const multiplier = parseFloat(multiplierText.replace('x', ''));
+      this.updateGlobalPayout(multiplier);
+    }
+  },
+
+  updateGlobalPayout(multiplier = null) {
+    if (!multiplier) {
+      const multiplierText = document.getElementById('global-multiplier-display')?.textContent;
+      if (!multiplierText) return;
+      multiplier = parseFloat(multiplierText.replace('x', ''));
+    }
+
+    const betAmount = parseInt(document.getElementById('global-bet-amount')?.value || 25);
+    const payout = Math.round(betAmount * multiplier);
+    const payoutDisplay = document.getElementById('global-payout-display');
+
+    if (payoutDisplay) {
+      this.updateNumber(payoutDisplay, payout, false);
+    }
   },
 
   async placePersonalBet() {
@@ -6926,7 +7619,7 @@ const catacombsIntelPanel = {
       if (data.success) {
         alert(`✅ Bet placed! Goal: ${hoursGoal}h, Amount: ${betAmount} coins`);
         await this.loadData();
-        this.renderBetsTab();
+        this.renderPersonalTab();
       } else {
         alert(`❌ Failed: ${data.message || 'Unknown error'}`);
       }
@@ -6977,7 +7670,7 @@ const catacombsIntelPanel = {
       if (data.success) {
         alert(`✅ Global bet placed! Prediction: ${hoursPrediction}h, Amount: ${betAmount} coins`);
         await this.loadData();
-        this.renderBetsTab();
+        this.renderGlobalTab();
       } else {
         alert(`❌ Failed: ${data.message || 'Unknown error'}`);
       }
@@ -6987,127 +7680,6 @@ const catacombsIntelPanel = {
     }
   },
 
-  renderShopTab() {
-    const container = document.getElementById('tab-shop');
-    if (!container) return;
-
-    if (!this.dataLoaded || !this.shopData || !this.shopData.items) {
-      container.innerHTML = '<div class="loading-state">Loading shop...</div>';
-      return;
-    }
-
-    const userCoins = this.shopData.user_coins || this.userCoins || 0;
-
-    if (this.shopData.items.length === 0) {
-      container.innerHTML = `
-        <div style="text-align: center; padding: 3rem; color: rgba(180, 180, 190, 0.7);">
-          <p>No items available in the shop right now.</p>
-        </div>
-      `;
-      return;
-    }
-
-    const itemsHTML = this.shopData.items.map(item => {
-      const canAfford = item.cost <= userCoins;
-      const inStock = item.remaining > 0;
-      const available = canAfford && inStock;
-
-      let buttonHTML = '';
-      if (!inStock) {
-        buttonHTML = '<button class="shop-item-buy-btn" disabled>Out of Stock</button>';
-      } else if (!canAfford) {
-        buttonHTML = `<button class="shop-item-buy-btn" disabled>Need ${item.cost - userCoins} more coins</button>`;
-      } else {
-        buttonHTML = `<button class="shop-item-buy-btn" data-item-id="${item.id}" data-item-cost="${item.cost}" data-item-name="${item.name}">Buy for ${item.cost} coins</button>`;
-      }
-
-      return `
-        <div class="shop-item ${!available ? 'unavailable' : ''}">
-          ${item.image_url ? `<img src="${item.image_url}" class="shop-item-image" alt="${item.name}">` : ''}
-          <div class="shop-item-content">
-            <div class="shop-item-name">${item.name || 'Item'}</div>
-            <div class="shop-item-desc">${item.description || 'No description'}</div>
-            <div class="shop-item-footer">
-              <span class="shop-item-cost">${item.cost} coins</span>
-              <span class="shop-item-stock">${item.remaining} left</span>
-            </div>
-            ${buttonHTML}
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    container.innerHTML = `
-      <div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(20, 20, 30, 0.7); border: 1px solid rgba(70, 70, 80, 0.5); border-radius: 6px;">
-        <strong style="color: #c8c8d8;">Your Coins:</strong> <span style="color: #b8b8c8; font-weight: 700;">${userCoins}</span>
-      </div>
-      <div class="shop-grid">
-        ${itemsHTML}
-      </div>
-    `;
-
-    container.querySelectorAll('.shop-item-buy-btn:not([disabled])').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const itemId = parseInt(e.target.dataset.itemId);
-        const itemCost = parseInt(e.target.dataset.itemCost);
-        const itemName = e.target.dataset.itemName;
-        this.purchaseItem(itemId, itemCost, itemName);
-      });
-    });
-
-  },
-
-  async purchaseItem(itemId, cost, name) {
-    if (!confirm(`Purchase ${name} for ${cost} coins?`)) {
-      return;
-    }
-
-    try {
-      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-      const response = await fetch('/catacombs/purchase_shop_item', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken
-        },
-        body: JSON.stringify({ item_id: itemId })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        alert(`✅ Purchased ${name}!`);
-        await this.loadData();
-        this.renderShopTab();
-      } else {
-        alert(`❌ Failed: ${data.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('[Catacombs Intel] Failed to purchase item:', error);
-      alert('❌ Failed to purchase item');
-    }
-  },
-
-  renderSecretsTab() {
-    const container = document.getElementById('tab-secrets');
-    if (!container) return;
-
-    container.innerHTML = `
-      <div class="secret-content">
-        <h3>This Week's Secret</h3>
-        <p style="margin-bottom: 1rem;">
-          <em>"I hear that if you include a jumpscare in your next project,
-          it might help you out on a spooky halloween night..."</em>
-        </p>
-        <div style="background: rgba(30, 30, 40, 0.6); padding: 1rem; border-radius: 6px; border-left: 3px solid rgba(120, 120, 140, 0.6);">
-          <p style="margin: 0;">
-            There were talks of a big party this Saturday... might be good to
-            have a jumpscare by then... but you didn't hear it from me...
-          </p>
-        </div>
-      </div>
-    `;
-  },
 
   async getPersonalBetRecommendation() {
     try {
@@ -7139,12 +7711,50 @@ const catacombsIntelPanel = {
         weeklyHours[week] += project.initialHours || 0;
       });
 
-      const weeks = Object.keys(weeklyHours).sort();
+      const parseWeekNumber = (weekStr) => {
+        const match = weekStr.match(/Week\s+(\d+)/i);
+        if (match) {
+          return parseInt(match[1], 10);
+        }
+        const num = parseInt(weekStr, 10);
+        return isNaN(num) ? null : num;
+      };
+
+
+      const weekNumbers = Object.keys(weeklyHours)
+        .map(w => ({ str: w, num: parseWeekNumber(w) }))
+        .filter(w => w.num !== null)
+        .sort((a, b) => a.num - b.num);
+
+
+      if (weekNumbers.length === 0) {
+        return null;
+      }
+
+      const minWeek = weekNumbers[0].num;
+      const maxWeek = weekNumbers[weekNumbers.length - 1].num;
+
+
+      for (let week = minWeek; week <= maxWeek; week++) {
+        const weekStr = String(week);
+        if (!weeklyHours[weekStr]) {
+          weeklyHours[weekStr] = 0;
+        }
+      }
+
+      const weeks = Object.keys(weeklyHours).sort((a, b) => {
+        const numA = parseWeekNumber(a) || 0;
+        const numB = parseWeekNumber(b) || 0;
+        return numA - numB;
+      });
+
+      const weeksWithHours = weeks.filter(w => weeklyHours[w] > 0);
+
       let weightedSum = 0;
       let weightTotal = 0;
 
-      weeks.forEach((week, index) => {
-        const weekAgo = weeks.length - 1 - index;
+      weeksWithHours.forEach((week, index) => {
+        const weekAgo = weeksWithHours.length - 1 - index;
         const weight = Math.exp(-weekAgo * 0.3);
         weightedSum += weeklyHours[week] * weight;
         weightTotal += weight;
@@ -7152,6 +7762,43 @@ const catacombsIntelPanel = {
 
       const avgHours = weightTotal > 0 ? weightedSum / weightTotal : 0;
       const personalBest = Math.max(...weeks.map(w => weeklyHours[w]));
+
+      const hoursArray = weeksWithHours.map(w => weeklyHours[w]);
+      const mean = hoursArray.reduce((a, b) => a + b, 0) / hoursArray.length;
+      const variance = hoursArray.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / hoursArray.length;
+      const stdDev = Math.sqrt(variance);
+
+      let trendSlope = 0;
+      if (weeksWithHours.length >= 3) {
+        const n = weeksWithHours.length;
+        const dataPoints = weeksWithHours.map((w, idx) => ({
+          x: idx,
+          y: weeklyHours[w]
+        }));
+
+        const sumX = dataPoints.reduce((sum, p) => sum + p.x, 0);
+        const sumY = dataPoints.reduce((sum, p) => sum + p.y, 0);
+        const sumXY = dataPoints.reduce((sum, p) => sum + (p.x * p.y), 0);
+        const sumX2 = dataPoints.reduce((sum, p) => sum + (p.x * p.x), 0);
+
+        const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+
+        trendSlope = slope / (avgHours || 1);
+
+        if (weeksWithHours.length >= 6) {
+          const recent3Points = dataPoints.slice(-3);
+          const n3 = recent3Points.length;
+          const sumX3 = recent3Points.reduce((sum, p, idx) => sum + idx, 0);
+          const sumY3 = recent3Points.reduce((sum, p) => sum + p.y, 0);
+          const sumXY3 = recent3Points.reduce((sum, p, idx) => sum + (idx * p.y), 0);
+          const sumX23 = recent3Points.reduce((sum, p, idx) => sum + (idx * idx), 0);
+
+          const recentSlope = (n3 * sumXY3 - sumX3 * sumY3) / (n3 * sumX23 - sumX3 * sumX3);
+          const recentTrend = recentSlope / (avgHours || 1);
+
+          trendSlope = 0.6 * recentTrend + 0.4 * trendSlope;
+        }
+      }
 
       const goals = [
         { hours: 15, multiplier: 1.5 },
@@ -7161,18 +7808,26 @@ const catacombsIntelPanel = {
 
       const goalsWithStats = goals.map(goal => {
         let chance;
-        if (goal.hours <= avgHours) {
-          chance = 70 + (30 * (avgHours - goal.hours) / avgHours);
-        } else if (goal.hours <= personalBest) {
-          const ratio = (goal.hours - avgHours) / (personalBest - avgHours);
-          chance = 50 - (30 * ratio);
+
+        const adjustedMean = avgHours * (1 + trendSlope * 0.5);
+        const zScore = (goal.hours - adjustedMean) / (stdDev || 1); 
+        
+        if (zScore <= 0) {
+          chance = 95 - (Math.abs(zScore) * 15);
+        } else if (zScore <= 1.0) {
+          chance = 80 - (zScore * 30);
+        } else if (zScore <= 2.0) {
+          chance = 50 - ((zScore - 1.0) * 35);
         } else {
-          const excessRatio = (goal.hours - personalBest) / personalBest;
-          const decayFactor = Math.exp(-3.5 * excessRatio);
-          chance = 20 * decayFactor;
+          chance = 15 * Math.exp(-(zScore - 2.0) * 0.8);
         }
 
-        chance = Math.max(1, Math.round(chance));
+        const consistencyFactor = stdDev / (avgHours || 1);
+        if (consistencyFactor < 0.3 && goal.hours <= avgHours * 1.2) {
+          chance = Math.min(95, chance * 1.15);
+        }
+
+        chance = Math.max(1, Math.min(95, Math.round(chance)));
         const risk = 100 - chance;
 
         const p = chance / 100;
@@ -7184,7 +7839,7 @@ const catacombsIntelPanel = {
         const edgeScore = Math.max(0, Math.min(1, (edge + 0.5) / 1.0));
         const combinedScore = 0.7 * confidenceScore + 0.3 * edgeScore;
         const aggressiveFactor = Math.pow(combinedScore, 0.7);
-        const bet = Math.max(5, Math.min(maxBet, Math.round(aggressiveFactor * maxBet)));
+        const bet = Math.max(10, Math.min(maxBet, Math.round(aggressiveFactor * maxBet)));
 
         return {
           hours: goal.hours,
@@ -7255,7 +7910,8 @@ const catacombsIntelPanel = {
           weeklyBuckets.set(weekNumber, { building: 0, other: 0 });
         }
         const bucket = weeklyBuckets.get(weekNumber);
-        if (status === 'building') {
+        const isBuilding = status === 'building' || status === 'in progress';
+        if (isBuilding) {
           bucket.building += hours;
         } else {
           bucket.other += hours;
@@ -7291,6 +7947,15 @@ const catacombsIntelPanel = {
         return null;
       }
 
+      const minWeek = Math.min(...allWeekNumbers);
+      const maxWeek = Math.max(...allWeekNumbers);
+
+      for (let week = minWeek; week <= maxWeek; week++) {
+        if (!weeklyHoursMap.has(week)) {
+          weeklyHoursMap.set(week, 0);
+        }
+      }
+
       const sortedWeekEntries = Array.from(weeklyHoursMap.entries()).sort((a, b) => a[0] - b[0]);
       const weekNumbers = sortedWeekEntries.map(([week]) => week);
       const values = sortedWeekEntries.map(([, hours]) => Math.round(hours * 10) / 10);
@@ -7321,19 +7986,14 @@ const catacombsIntelPanel = {
         expected = weightedPred;
 
         const lowerBound = Math.min(expPred, powPred);
-        safe = Math.round(Math.max(1208, lowerBound));
-
         const upperBound = Math.max(expPred, powPred);
-        risky = Math.round(upperBound);
+        const spread = Math.abs(upperBound - lowerBound);
 
-        if (safe > expected || safe > risky) {
-          const spread = Math.abs(upperBound - lowerBound);
-          safe = Math.round(Math.max(1208, expected - spread * 0.5));
-          risky = Math.round(expected + spread * 0.5);
-        }
+        safe = Math.round(expected - spread * 0.5);
+        risky = Math.round(expected + spread * 0.5);
       } else {
         expected = Math.round(mean);
-        safe = Math.round(Math.max(1208, expected - stdDev * 0.5));
+        safe = Math.round(expected - stdDev * 0.5);
         risky = Math.round(expected + stdDev * 0.5);
       }
 
@@ -7362,8 +8022,10 @@ const catacombsIntelPanel = {
       const expectedRisk = 100 - expectedSuccess;
       const riskyRisk = 100 - riskySuccess;
 
+      const lastWeekHours = values.length >= 2 ? values[values.length - 2] : (values.length >= 1 ? values[values.length - 1] : null);
+
       const calculateOptimalBet = (targetHours, successProb) => {
-        const multiplier = this.calculateGlobalMultiplier(targetHours);
+        const multiplier = this.calculateGlobalMultiplier(targetHours, lastWeekHours);
         const p = successProb / 100;
         const q = 1 - p;
         const maxBet = 200;
@@ -7482,11 +8144,24 @@ const catacombsIntelPanel = {
     }
   },
 
-  calculateGlobalMultiplier(hours) {
-    if (hours < 1208) return 1.0;
-    if (hours >= 2000) return 20.39;
-    const k = 0.00377;
-    return Math.min(20.39, 1.01 * Math.exp(k * (hours - 1208)));
+  calculateGlobalMultiplier(predictedHours, lastWeekHours = null) {
+    if (!lastWeekHours || lastWeekHours === 0) {
+      return 1.5;
+    }
+
+    const percentage = predictedHours / lastWeekHours;
+
+    if (percentage < 0.8) {
+      return 1.0;
+    } else if (percentage < 1.0) {
+      const t = (percentage - 0.8) / 0.2;
+      return 1.0 + 1.0 * (t * t);
+    } else if (percentage < 1.05) {
+      const t = (percentage - 1.0) / 0.05;
+      return 2.0 + 0.5 * (t * t);
+    } else {
+      return 2.5 + 0.5 * Math.pow((percentage - 1.05) / 0.05, 2);
+    }
   },
 
   getAlgorithms(weekNumbers, values) {
@@ -7607,7 +8282,7 @@ const catacombsIntelPanel = {
       prediction: weightedResult.prediction,
       series: weightedResult.series,
       name: 'Adaptive Weighted',
-      color: '#a855f7',
+      color: '#f59e0b',
       weights: {
         exponential: Math.round(weights.expWeight * 100),
         powerLaw: Math.round(weights.powWeight * 100)
@@ -7685,6 +8360,7 @@ const catacombsIntelPanel = {
     if (algorithms) {
       Object.values(algorithms).forEach(alg => {
         if (!alg.series || !Number.isFinite(alg.prediction)) return;
+        const isAdaptiveWeighted = alg.name === 'Adaptive Weighted';
         datasets.push({
           label: `${alg.name}: ${alg.prediction}h`,
           data: alg.series,
@@ -7693,7 +8369,8 @@ const catacombsIntelPanel = {
           borderWidth: 2,
           pointRadius: 2,
           fill: false,
-          spanGaps: false
+          spanGaps: false,
+          hidden: !isAdaptiveWeighted
         });
       });
     }
@@ -7709,7 +8386,14 @@ const catacombsIntelPanel = {
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            labels: { color: '#c8c8d8', font: { size: 11 } }
+            labels: { color: '#c8c8d8', font: { size: 11 } },
+            onClick: (e, legendItem, legend) => {
+              const index = legendItem.datasetIndex;
+              const chart = legend.chart;
+              const meta = chart.getDatasetMeta(index);
+              meta.hidden = !meta.hidden;
+              chart.update();
+            }
           }
         },
         scales: {

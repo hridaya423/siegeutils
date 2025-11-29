@@ -436,4 +436,81 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     return true;
   }
+
+  if (request.action === 'fetchLeaderboard') {
+    const { currentWeek, userName } = request;
+
+    (async () => {
+      try {
+        const projectsResponse = await fetch('https://siege.hackclub.com/api/public-beta/projects');
+        if (!projectsResponse.ok) {
+          throw new Error(`Failed to fetch projects: ${projectsResponse.status}`);
+        }
+        const projectsRaw = await projectsResponse.json();
+
+        const projectsData = Array.isArray(projectsRaw) ? projectsRaw : (projectsRaw.projects || []);
+
+        if (!Array.isArray(projectsData) || projectsData.length === 0) {
+          console.error('[Leaderboard BG] Invalid projects data:', projectsRaw);
+          throw new Error('No projects data available');
+        }
+
+        const currentWeekProjects = projectsData.filter(p => {
+          const weekMatch = p.week_badge_text?.match(/Week (\d+)/);
+          return weekMatch && parseInt(weekMatch[1]) === currentWeek;
+        });
+
+        const userIds = [...new Set(currentWeekProjects.map(p => p.user?.id).filter(id => id))];
+
+        const userDataPromises = userIds.map(async (id) => {
+          try {
+            const response = await fetch(`https://siege.hackclub.com/api/public-beta/user/${id}`);
+            if (!response.ok) return null;
+            return await response.json();
+          } catch (error) {
+            console.error(`[Leaderboard BG] Failed to fetch user ${id}:`, error);
+            return null;
+          }
+        });
+
+        const usersData = await Promise.all(userDataPromises);
+
+        const leaderboard = usersData
+          .filter(user => user && user.id)
+          .map(user => ({
+            id: user.id,
+            name: user.name,
+            display_name: user.display_name,
+            coins: user.coins || 0
+          }))
+          .sort((a, b) => b.coins - a.coins)
+          .map((user, index) => ({
+            ...user,
+            rank: index + 1
+          }));
+
+        const userEntry = leaderboard.find(u =>
+          u.display_name === userName || u.name === userName
+        );
+
+        if (userEntry) {
+          sendResponse({
+            success: true,
+            data: {
+              rank: userEntry.rank,
+              coins: userEntry.coins,
+              totalUsers: leaderboard.length
+            }
+          });
+        } else {
+          sendResponse({ success: false, error: 'User not found in leaderboard' });
+        }
+      } catch (error) {
+        console.error('[Leaderboard BG] Error:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+
+    return true;
+  }
 });

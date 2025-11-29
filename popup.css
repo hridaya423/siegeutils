@@ -31,6 +31,11 @@ body[data-theme="spooky"] {
   color: #f6edff;
 }
 
+body[data-theme="winter"] {
+  background: linear-gradient(180deg, #0d1419 0%, #111d2b 100%);
+  color: #e3f2ff;
+}
+
 .popup-container {
   padding: 1.5rem;
 }
@@ -55,6 +60,10 @@ body[data-theme="signal"] .popup-title {
 
 body[data-theme="spooky"] .popup-title {
   color: #ff8a3d;
+}
+
+body[data-theme="winter"] .popup-title {
+  color: #89ddff;
 }
 
 .popup-subtitle {
@@ -125,6 +134,17 @@ body[data-theme="spooky"] .theme-card:hover {
   transform: translateY(-2px);
 }
 
+body[data-theme="winter"] .theme-card {
+  background: rgba(26, 38, 51, 0.6);
+  border: 2px solid rgba(107, 182, 255, 0.2);
+}
+
+body[data-theme="winter"] .theme-card:hover {
+  background: rgba(36, 54, 71, 0.8);
+  border-color: #6bb6ff;
+  transform: translateY(-2px);
+}
+
 .theme-card input[type="radio"] {
   appearance: none;
   width: 20px;
@@ -149,6 +169,10 @@ body[data-theme="signal"] .theme-card input[type="radio"] {
 
 body[data-theme="spooky"] .theme-card input[type="radio"] {
   border: 2px solid #ff8a3d;
+}
+
+body[data-theme="winter"] .theme-card input[type="radio"] {
+  border: 2px solid #6bb6ff;
 }
 
 .theme-card input[type="radio"]:checked::before {
@@ -176,6 +200,10 @@ body[data-theme="signal"] .theme-card input[type="radio"]:checked::before {
 
 body[data-theme="spooky"] .theme-card input[type="radio"]:checked::before {
   background: #ff8a3d;
+}
+
+body[data-theme="winter"] .theme-card input[type="radio"]:checked::before {
+  background: #6bb6ff;
 }
 
 .theme-preview {
@@ -232,6 +260,11 @@ body[data-theme="signal"] .theme-settings {
 body[data-theme="spooky"] .theme-settings {
   background: #221636;
   border: 1px solid #342452;
+}
+
+body[data-theme="winter"] .theme-settings {
+  background: rgba(26, 38, 51, 0.6);
+  border: 1px solid rgba(107, 182, 255, 0.2);
 }
 
 .setting-toggle {
@@ -323,6 +356,16 @@ body[data-theme="spooky"] #reset-custom:hover {
   background: #48326f;
 }
 
+body[data-theme="winter"] #reset-custom {
+  background: rgba(107, 182, 255, 0.15);
+  color: #e3f2ff;
+  border-color: rgba(107, 182, 255, 0.3);
+}
+
+body[data-theme="winter"] #reset-custom:hover {
+  background: rgba(107, 182, 255, 0.25);
+}
+
 .popup-footer {
   padding-top: 1rem;
   border-top: 1px solid;
@@ -344,6 +387,10 @@ body[data-theme="signal"] .popup-footer {
 
 body[data-theme="spooky"] .popup-footer {
   border-top-color: #342452;
+}
+
+body[data-theme="winter"] .popup-footer {
+  border-top-color: rgba(107, 182, 255, 0.2);
 }
 
 .version {

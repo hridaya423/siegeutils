@@ -28,7 +28,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["catppuccin.css", "signal.css", "spooky.css"],
+      "resources": ["catppuccin.css", "signal.css", "spooky.css", "winter.css"],
       "matches": ["https://siege.hackclub.com/*"]
     }
   ],

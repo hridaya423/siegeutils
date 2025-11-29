@@ -1,33 +1,35 @@
 :root {
-  --ctp-base: #1e1e2e;
-  --ctp-mantle: #181825;
-  --ctp-crust: #11111b;
-  --ctp-surface0: #313244;
-  --ctp-surface1: #45475a;
-  --ctp-surface2: #585b70;
-  --ctp-overlay0: #6c7086;
-  --ctp-overlay1: #7f849c;
-  --ctp-overlay2: #9399b2;
-  --ctp-text: #cdd6f4;
-  --ctp-subtext1: #bac2de;
-  --ctp-subtext0: #a6adc8;
-  --ctp-blue: #89b4fa;
-  --ctp-sapphire: #74c7ec;
-  --ctp-sky: #89dceb;
-  --ctp-teal: #94e2d5;
-  --ctp-green: #a6e3a1;
-  --ctp-yellow: #f9e2af;
-  --ctp-peach: #fab387;
-  --ctp-maroon: #eba0ac;
-  --ctp-red: #f38ba8;
-  --ctp-mauve: #cba6f7;
-  --ctp-pink: #f5c2e7;
-  --ctp-flamingo: #f2cdcd;
-  --ctp-rosewater: #f5e0dc;
+  --ctp-base: #f8f9fa;
+  --ctp-mantle: #eef2f5;
+  --ctp-crust: #e4e9ed;
+  --ctp-surface0: #ffffff;
+  --ctp-surface1: #f4f7f9;
+  --ctp-surface2: #e8ecef;
+  --ctp-overlay0: #cbd5e0;
+  --ctp-overlay1: #b8c5d0;
+  --ctp-overlay2: #a5b4c0;
+  --ctp-text: #1a3847;
+  --ctp-subtext1: #2d4f5e;
+  --ctp-subtext0: #496775;
+  --ctp-blue: #4a90e2;
+  --ctp-sapphire: #2e7dcc;
+  --ctp-sky: #87ceeb;
+  --ctp-teal: #16a085;
+  --ctp-green: #2d7d46;
+  --ctp-yellow: #f4c430;
+  --ctp-peach: #d4af37;
+  --ctp-maroon: #8b0000;
+  --ctp-red: #c41e3a;
+  --ctp-mauve: #b695c0;
+  --ctp-pink: #ff69b4;
+  --ctp-flamingo: #ff8c94;
+  --ctp-rosewater: #ffb3ba;
 }
 
 body {
-  background: var(--ctp-base) !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(240,248,255,0.7) 100%),
+    repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(176,224,230,0.05) 35px, rgba(176,224,230,0.05) 70px) !important;
   color: var(--ctp-text) !important;
 }
 
@@ -830,19 +832,20 @@ body.no-hues canvas {
 
 .siege-rank-badge {
   background: var(--ctp-surface0) !important;
-  border-color: var(--ctp-surface2) !important;
+  border-color: var(--ctp-blue) !important;
   color: var(--ctp-text) !important;
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.12) !important;
 }
 
 .siege-project-dropdown-selected {
   background: var(--ctp-surface0) !important;
   border-color: var(--ctp-surface1) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
 }
 
 .siege-project-dropdown-selected:hover {
   border-color: var(--ctp-blue) !important;
-  box-shadow: 0 4px 12px rgba(137, 180, 250, 0.15) !important;
+  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.15) !important;
 }
 
 .siege-project-dropdown-label {
@@ -860,7 +863,7 @@ body.no-hues canvas {
 .siege-project-dropdown-options {
   background: var(--ctp-surface0) !important;
   border-color: var(--ctp-surface1) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
 }
 
 .siege-project-dropdown-options::-webkit-scrollbar-track {

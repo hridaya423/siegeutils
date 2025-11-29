@@ -934,3 +934,68 @@ button:hover,
   box-shadow: 0 0 30px rgba(255, 68, 68, 0.8), 0 0 50px rgba(255, 68, 68, 0.4) !important;
   transform: scale(1.02) !important;
 }
+
+.siege-user-rank {
+  color: var(--ctp-text) !important;
+}
+
+.siege-rank-badge {
+  background: var(--ctp-surface0) !important;
+  border-color: var(--ctp-red) !important;
+  color: var(--ctp-text) !important;
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.15) !important;
+}
+
+.siege-project-dropdown-selected {
+  background: var(--ctp-surface0) !important;
+  border-color: var(--ctp-surface1) !important;
+  box-shadow: 0 2px 8px rgba(255, 68, 68, 0.1), 0 0 15px rgba(255, 68, 68, 0.05) !important;
+}
+
+.siege-project-dropdown-selected:hover {
+  border-color: var(--ctp-blue) !important;
+  box-shadow: 0 4px 12px rgba(255, 68, 68, 0.2), 0 0 20px rgba(255, 68, 68, 0.1) !important;
+}
+
+.siege-project-dropdown-label {
+  color: var(--ctp-subtext0) !important;
+}
+
+.siege-project-dropdown-value {
+  color: var(--ctp-text) !important;
+}
+
+.siege-project-dropdown-selected svg {
+  color: var(--ctp-text) !important;
+}
+
+.siege-project-dropdown-options {
+  background: var(--ctp-surface0) !important;
+  border-color: var(--ctp-surface1) !important;
+  box-shadow: 0 8px 24px rgba(255, 68, 68, 0.2), 0 0 30px rgba(255, 68, 68, 0.1) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-track {
+  background: var(--ctp-base) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-thumb {
+  background: var(--ctp-surface1) !important;
+}
+
+.siege-project-dropdown-options::-webkit-scrollbar-thumb:hover {
+  background: var(--ctp-surface2) !important;
+}
+
+.siege-project-dropdown-option {
+  color: var(--ctp-text) !important;
+}
+
+.siege-project-dropdown-option:hover {
+  background: var(--ctp-surface1) !important;
+}
+
+.siege-project-dropdown-option.selected {
+  background: var(--ctp-surface2) !important;
+  color: var(--ctp-blue) !important;
+}
