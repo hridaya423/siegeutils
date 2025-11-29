@@ -29,7 +29,7 @@
       "run_at": "document_end"
     }
   ],
-  "web_accessible_resources": ["catppuccin.css", "signal.css", "spooky.css"],
+  "web_accessible_resources": ["catppuccin.css", "signal.css", "spooky.css", "winter.css"],
   "icons": {
     "64": "icon64.png",
     "128": "icon128.png"
