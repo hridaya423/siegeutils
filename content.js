@@ -294,6 +294,662 @@ const bettingPredictor = {
   }
 };
 
+const betHistory = {
+  STORAGE_KEY: 'siege-utils-bet-history',
+
+  getHistory() {
+    const stored = localStorage.getItem(this.STORAGE_KEY);
+    return stored ? JSON.parse(stored) : { bets: [], stats: { totalBets: 0, wins: 0, losses: 0, pending: 0, netProfit: 0 } };
+  },
+
+  saveHistory(history) {
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(history));
+  },
+
+  recordBet(betData) {
+    const history = this.getHistory();
+    const bet = {
+      id: Date.now(),
+      type: betData.type,
+      week: betData.week || utils.getCurrentWeek(),
+      goalHours: betData.goalHours,
+      betAmount: betData.betAmount,
+      multiplier: betData.multiplier,
+      potentialPayout: Math.round(betData.betAmount * betData.multiplier),
+      status: 'pending',
+      actualHours: null,
+      payout: 0,
+      timestamp: new Date().toISOString()
+    };
+    history.bets.push(bet);
+    history.stats.totalBets++;
+    history.stats.pending++;
+    this.saveHistory(history);
+    return bet;
+  },
+
+  resolveBet(betId, won, actualHours) {
+    const history = this.getHistory();
+    const bet = history.bets.find(b => b.id === betId);
+    if (!bet || bet.status !== 'pending') return null;
+
+    bet.status = won ? 'won' : 'lost';
+    bet.actualHours = actualHours;
+    bet.payout = won ? bet.potentialPayout : 0;
+    bet.resolvedAt = new Date().toISOString();
+
+    history.stats.pending--;
+    if (won) {
+      history.stats.wins++;
+      history.stats.netProfit += (bet.potentialPayout - bet.betAmount);
+    } else {
+      history.stats.losses++;
+      history.stats.netProfit -= bet.betAmount;
+    }
+
+    this.saveHistory(history);
+    return bet;
+  },
+
+  getStats() {
+    const history = this.getHistory();
+    const stats = history.stats;
+    const winRate = stats.totalBets > 0 ? ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1) : 0;
+    const avgBet = history.bets.length > 0
+      ? Math.round(history.bets.reduce((sum, b) => sum + b.betAmount, 0) / history.bets.length)
+      : 0;
+
+    let currentStreak = 0;
+    let streakType = null;
+    const resolvedBets = history.bets.filter(b => b.status !== 'pending').reverse();
+    for (const bet of resolvedBets) {
+      if (streakType === null) {
+        streakType = bet.status;
+        currentStreak = 1;
+      } else if (bet.status === streakType) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+
+    return {
+      ...stats,
+      winRate,
+      avgBet,
+      currentStreak,
+      streakType,
+      recentBets: history.bets.slice(-10).reverse()
+    };
+  },
+
+  createHistoryUI() {
+    const stats = this.getStats();
+    const history = this.getHistory();
+
+    if (history.bets.length === 0) {
+      return `
+        <div class="dashboard-card">
+          <h3>📊 Bet History</h3>
+          <div style="padding: 1.5rem; text-align: center; color: rgba(200, 200, 210, 0.7);">
+            <p>No bets recorded yet.</p>
+            <p style="font-size: 0.8rem; margin-top: 0.5rem;">Your betting history will appear here once you place bets.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    const streakDisplay = stats.currentStreak > 1
+      ? `<span style="color: ${stats.streakType === 'won' ? '#10b981' : '#ef4444'};">${stats.currentStreak} ${stats.streakType === 'won' ? 'wins' : 'losses'} streak</span>`
+      : '';
+
+    return `
+      <div class="dashboard-card">
+        <h3>📊 Bet History</h3>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+          <div style="text-align: center; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 6px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: #f0f0f8;">${stats.totalBets}</div>
+            <div style="font-size: 0.7rem; color: #a8a8b8;">Total Bets</div>
+          </div>
+          <div style="text-align: center; padding: 0.5rem; background: rgba(16, 185, 129, 0.15); border-radius: 6px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: #10b981;">${stats.wins}</div>
+            <div style="font-size: 0.7rem; color: #a8a8b8;">Wins</div>
+          </div>
+          <div style="text-align: center; padding: 0.5rem; background: rgba(239, 68, 68, 0.15); border-radius: 6px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444;">${stats.losses}</div>
+            <div style="font-size: 0.7rem; color: #a8a8b8;">Losses</div>
+          </div>
+          <div style="text-align: center; padding: 0.5rem; background: rgba(${stats.netProfit >= 0 ? '16, 185, 129' : '239, 68, 68'}, 0.15); border-radius: 6px;">
+            <div style="font-size: 1.2rem; font-weight: 700; color: ${stats.netProfit >= 0 ? '#10b981' : '#ef4444'};">${stats.netProfit >= 0 ? '+' : ''}${stats.netProfit}</div>
+            <div style="font-size: 0.7rem; color: #a8a8b8;">Net Profit</div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; padding: 0.5rem; background: rgba(0,0,0,0.15); border-radius: 6px;">
+          <span style="color: #c8c8d8; font-size: 0.85rem;">Win Rate: <strong style="color: #f0f0f8;">${stats.winRate}%</strong></span>
+          ${streakDisplay ? `<span style="font-size: 0.85rem;">${streakDisplay}</span>` : ''}
+        </div>
+        <div style="max-height: 200px; overflow-y: auto;">
+          ${stats.recentBets.map(bet => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid rgba(100, 100, 120, 0.2); font-size: 0.85rem;">
+              <div>
+                <span style="color: ${bet.type === 'personal' ? '#60a5fa' : '#a78bfa'};">${bet.type === 'personal' ? '👤' : '🌍'}</span>
+                <span style="color: #c8c8d8; margin-left: 0.25rem;">Week ${bet.week}</span>
+                <span style="color: #a8a8b8; margin-left: 0.5rem;">${bet.goalHours}h @ ${bet.multiplier}x</span>
+              </div>
+              <div>
+                ${bet.status === 'pending'
+                  ? `<span style="color: #f59e0b;">⏳ ${bet.betAmount} coins</span>`
+                  : bet.status === 'won'
+                    ? `<span style="color: #10b981;">✓ +${bet.payout - bet.betAmount}</span>`
+                    : `<span style="color: #ef4444;">✗ -${bet.betAmount}</span>`
+                }
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+};
+
+const timeBudgetCalculator = {
+  calculate(availableHours) {
+    const currentWeek = utils.getCurrentWeek();
+    const efficiency = currentWeek >= 5 ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
+    const projectedCoins = Math.round(availableHours * efficiency);
+    const currentCoins = utils.getCurrentCoins();
+    const totalCoins = currentCoins + projectedCoins;
+
+    const statsData = JSON.parse(localStorage.getItem('siege-utils-project-stats') || '{}');
+    const weeklyHours = this.getWeeklyHoursArray(statsData);
+    const prediction = bettingPredictor.predictPersonalHours(weeklyHours);
+
+    const betSuggestions = {
+      safe: {
+        hours: Math.round(availableHours * 0.75),
+        multiplier: 1.5,
+        winProb: Math.round(bettingPredictor.calculateWinProbability(availableHours * 0.75, { ...prediction, prediction: availableHours }) * 100)
+      },
+      moderate: {
+        hours: Math.round(availableHours * 0.9),
+        multiplier: 2.0,
+        winProb: Math.round(bettingPredictor.calculateWinProbability(availableHours * 0.9, { ...prediction, prediction: availableHours }) * 100)
+      },
+      aggressive: {
+        hours: availableHours,
+        multiplier: 2.5,
+        winProb: Math.round(bettingPredictor.calculateWinProbability(availableHours, { ...prediction, prediction: availableHours }) * 100)
+      }
+    };
+
+    return {
+      availableHours,
+      efficiency: efficiency.toFixed(1),
+      projectedCoins,
+      currentCoins,
+      totalCoins,
+      betSuggestions
+    };
+  },
+
+  getWeeklyHoursArray(statsData) {
+    const weeklyHours = {};
+    Object.values(statsData).forEach(project => {
+      const week = project.week || 'Unknown';
+      if (!weeklyHours[week]) weeklyHours[week] = 0;
+      weeklyHours[week] += project.hours || 0;
+    });
+    return Object.values(weeklyHours);
+  },
+
+  createUI() {
+    return `
+      <div class="dashboard-card">
+        <h3>⏱️ Time Budget Calculator</h3>
+        <div class="bet-form-group">
+          <label class="bet-form-label">Hours available this week</label>
+          <input type="number" class="bet-form-input" id="time-budget-hours" value="15" min="1" max="100" step="0.5">
+        </div>
+        <button class="intel-button" id="calculate-budget-btn">Calculate</button>
+        <div id="budget-results" style="margin-top: 1rem;"></div>
+      </div>
+    `;
+  },
+
+  renderResults(results) {
+    return `
+      <div style="padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; margin-bottom: 0.75rem;">
+        <div style="font-size: 1.1rem; font-weight: 600; color: #60a5fa; margin-bottom: 0.5rem;">
+          📈 Projected: ~${results.projectedCoins} coins
+        </div>
+        <div style="font-size: 0.85rem; color: #c8c8d8;">
+          At ${results.efficiency} coins/hour efficiency
+        </div>
+        <div style="font-size: 0.9rem; color: #a8a8b8; margin-top: 0.5rem;">
+          Current: ${results.currentCoins} → Total: <strong style="color: #f0f0f8;">${results.totalCoins}</strong> coins
+        </div>
+      </div>
+      <div style="padding: 0.75rem; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px;">
+        <div style="font-size: 0.9rem; font-weight: 600; color: #a78bfa; margin-bottom: 0.5rem;">🎲 Bet Suggestions</div>
+        <div style="display: grid; gap: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; padding: 0.4rem; background: rgba(16, 185, 129, 0.1); border-radius: 4px;">
+            <span style="color: #10b981;">🛡️ Safe: ${results.betSuggestions.safe.hours}h</span>
+            <span style="color: #a8a8b8;">${results.betSuggestions.safe.winProb}% win • 1.5x</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 0.4rem; background: rgba(59, 130, 246, 0.1); border-radius: 4px;">
+            <span style="color: #60a5fa;">⚖️ Moderate: ${results.betSuggestions.moderate.hours}h</span>
+            <span style="color: #a8a8b8;">${results.betSuggestions.moderate.winProb}% win • 2x</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 0.4rem; background: rgba(245, 158, 11, 0.1); border-radius: 4px;">
+            <span style="color: #f59e0b;">🎲 Aggressive: ${results.betSuggestions.aggressive.hours}h</span>
+            <span style="color: #a8a8b8;">${results.betSuggestions.aggressive.winProb}% win • 2.5x</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+};
+
+const efficiencyTrending = {
+  calculateTrend(currentProjectWeek) {
+    const stats = projectStats.getStoredStats();
+    const allProjects = Object.values(stats);
+
+    if (allProjects.length < 1) return null;
+    const weeklyEfficiency = {};
+    allProjects.forEach(p => {
+      const week = p.week;
+      if (!weeklyEfficiency[week]) {
+        weeklyEfficiency[week] = { totalCoins: 0, totalHours: 0 };
+      }
+      weeklyEfficiency[week].totalCoins += p.total_coins || 0;
+      weeklyEfficiency[week].totalHours += p.hours || 0;
+    });
+
+    const isWeek5Plus = currentProjectWeek >= 5;
+
+    const allWeeks = Object.keys(weeklyEfficiency)
+      .map(w => parseInt(w))
+      .filter(w => isWeek5Plus ? w >= 5 : w <= 4)
+      .sort((a, b) => a - b);
+
+    if (allWeeks.length === 0) return null;
+
+    const allEfficiencies = allWeeks.map(w => {
+      const data = weeklyEfficiency[w];
+      const efficiency = data.totalHours > 0 ? data.totalCoins / data.totalHours : 0;
+      return { week: w, efficiency };
+    }).filter(e => e.efficiency > 0);
+
+    if (allEfficiencies.length === 0) return null;
+
+    const currentWeekData = allEfficiencies.find(e => e.week === currentProjectWeek);
+
+    const previousWeeks = allEfficiencies.filter(e => e.week < currentProjectWeek);
+
+    if (!currentWeekData) {
+      if (previousWeeks.length === 0) {
+        return null;
+      }
+
+      const avgPrevious = previousWeeks.reduce((sum, w) => sum + w.efficiency, 0) / previousWeeks.length;
+
+      const minWeek = Math.min(...previousWeeks.map(w => w.week));
+      const maxWeek = Math.max(...previousWeeks.map(w => w.week));
+      const weekRange = minWeek === maxWeek ? `week ${minWeek}` : `weeks ${minWeek}-${maxWeek}`;
+
+      return {
+        current: avgPrevious.toFixed(1),
+        previous: avgPrevious.toFixed(1),
+        hasPrevious: true,
+        change: '0.0',
+        trend: 'stable',
+        weekRange,
+        weeklyData: previousWeeks,
+        projectedEfficiency: avgPrevious
+      };
+    }
+
+    if (previousWeeks.length === 0) {
+      return {
+        current: currentWeekData.efficiency.toFixed(1),
+        hasPrevious: false,
+        weeklyData: [currentWeekData],
+        projectedEfficiency: currentWeekData.efficiency
+      };
+    }
+
+    const avgPrevious = previousWeeks.reduce((sum, w) => sum + w.efficiency, 0) / previousWeeks.length;
+    const change = avgPrevious > 0 ? ((currentWeekData.efficiency - avgPrevious) / avgPrevious) * 100 : 0;
+
+    const minWeek = Math.min(...previousWeeks.map(w => w.week));
+    const maxWeek = Math.max(...previousWeeks.map(w => w.week));
+    const weekRange = minWeek === maxWeek ? `week ${minWeek}` : `weeks ${minWeek}-${maxWeek}`;
+
+    return {
+      current: currentWeekData.efficiency.toFixed(1),
+      previous: avgPrevious.toFixed(1),
+      hasPrevious: true,
+      change: change.toFixed(1),
+      trend: change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
+      weekRange,
+      weeklyData: previousWeeks,
+      projectedEfficiency: avgPrevious
+    };
+  },
+
+  createSparkline(data, width = 80, height = 24, strokeColor = null, lineStyle = 'solid') {
+    if (!data || data.length < 1) return '';
+
+    const values = data.map(d => d.efficiency);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+
+    let points;
+    const circles = [];
+
+    if (data.length === 1) {
+      const y = height / 2;
+      if (lineStyle === 'dotted') {
+        const segments = [];
+        for (let i = 0; i < 10; i++) {
+          const x1 = (i / 10) * width;
+          const x2 = ((i + 0.5) / 10) * width;
+          segments.push(`${x1},${y} ${x2},${y}`);
+        }
+        points = segments;
+      } else {
+        points = `0,${y} ${width},${y}`;
+      }
+      circles.push({ cx: width/2, cy: y, data: data[0] });
+    } else {
+      const pointsArray = [];
+      points = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * width;
+        const y = height - ((v - min) / range) * height;
+        circles.push({ cx: x, cy: y, data: data[i] });
+        pointsArray.push(`${x},${y}`);
+        return `${x},${y}`;
+      }).join(' ');
+    }
+
+    const trendColor = strokeColor || (values[values.length - 1] > values[0] ? '#10b981' : values[values.length - 1] < values[0] ? '#ef4444' : '#f59e0b');
+
+    const circlesSvg = circles.map(circle => {
+      const title = `Week ${circle.data.week}: ${circle.data.efficiency.toFixed(1)} 🪙/h`;
+      return `<circle cx="${circle.cx}" cy="${circle.cy}" r="2.5" fill="${trendColor}" stroke="white" stroke-width="0.5"><title>${title}</title></circle>`;
+    }).join('');
+
+    let lineElement;
+    if (lineStyle === 'dotted' && Array.isArray(points)) {
+      lineElement = points.map(segment =>
+        `<polyline points="${segment}" fill="none" stroke="${trendColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2,2"/>`
+      ).join('');
+    } else {
+      const dashArray = lineStyle === 'dotted' ? 'stroke-dasharray="2,2"' : '';
+      lineElement = `<polyline points="${points}" fill="none" stroke="${trendColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${dashArray}/>`;
+    }
+
+    return `
+      <svg width="${width}" height="${height}" style="display: inline-block; vertical-align: middle; cursor: pointer;">
+        ${lineElement}
+        ${circlesSvg}
+      </svg>
+    `;
+  },
+
+  createBadge(currentProjectWeek, lineStyle = 'solid') {
+    const trend = this.calculateTrend(currentProjectWeek);
+    if (!trend) return '';
+
+    const COLORS = {
+      up: '#22c55e',    
+      down: '#ef4444', 
+      stable: '#f59e0b' 
+    };
+
+    if (!trend.hasPrevious) {
+      const sparklineColor = COLORS.stable;
+      return `
+        <div class="siege-efficiency-trend" style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 0.95rem; font-weight: 500;">
+          ${this.createSparkline(trend.weeklyData, 80, 24, sparklineColor, lineStyle)}
+          <div style="display: flex; flex-direction: column; line-height: 1.2;">
+            <span style="color: ${sparklineColor}; font-weight: 700; font-size: 1.05rem;">→ ${trend.current} 🪙/h</span>
+            <span style="color: #d0d0d0; font-size: 0.75rem; font-weight: 500;">avg (no previous data)</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const icon = trend.trend === 'up' ? '↑' : trend.trend === 'down' ? '↓' : '→';
+    const color = COLORS[trend.trend];
+
+    return `
+      <div class="siege-efficiency-trend" style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem 0.8rem; background: rgba(0,0,0,0.15); border-radius: 8px; font-size: 0.95rem; font-weight: 500;">
+        ${this.createSparkline(trend.weeklyData, 80, 24, color, lineStyle)}
+        <div style="display: flex; flex-direction: column; line-height: 1.2;">
+          <span style="color: ${color}; font-weight: 700; font-size: 1.05rem;">${icon} ${Math.abs(trend.change)}%</span>
+          <span style="color: #d0d0d0; font-size: 0.75rem; font-weight: 500;">avg ${trend.previous} 🪙/h (${trend.weekRange})</span>
+        </div>
+      </div>
+    `;
+  }
+};
+
+const reviewerPatterns = {
+  analyze() {
+    const stats = projectStats.getStoredStats();
+    const projects = Object.values(stats);
+
+    if (projects.length < 3) return null;
+
+    const hoursBuckets = {
+      'short': { label: '0-5h', projects: [], avgBonus: 0, avgStars: 0 },
+      'medium': { label: '5-10h', projects: [], avgBonus: 0, avgStars: 0 },
+      'long': { label: '10-20h', projects: [], avgBonus: 0, avgStars: 0 },
+      'marathon': { label: '20h+', projects: [], avgBonus: 0, avgStars: 0 }
+    };
+
+    projects.forEach(p => {
+      const hours = p.hours || 0;
+      let bucket;
+      if (hours <= 5) bucket = 'short';
+      else if (hours <= 10) bucket = 'medium';
+      else if (hours <= 20) bucket = 'long';
+      else bucket = 'marathon';
+
+      hoursBuckets[bucket].projects.push(p);
+    });
+
+    Object.keys(hoursBuckets).forEach(key => {
+      const bucket = hoursBuckets[key];
+      if (bucket.projects.length > 0) {
+        bucket.avgBonus = bucket.projects.reduce((sum, p) => sum + (p.reviewer_bonus || 0), 0) / bucket.projects.length;
+        bucket.avgStars = bucket.projects.reduce((sum, p) => sum + (p.avg_score || 0), 0) / bucket.projects.length;
+        bucket.avgEfficiency = bucket.projects.reduce((sum, p) => sum + (p.coins_per_hour || 0), 0) / bucket.projects.length;
+        bucket.count = bucket.projects.length;
+      }
+    });
+
+    const bucketsWithData = Object.values(hoursBuckets).filter(b => b.count > 0);
+    const bestByBonus = bucketsWithData.reduce((best, b) => b.avgBonus > best.avgBonus ? b : best, bucketsWithData[0]);
+    const bestByEfficiency = bucketsWithData.reduce((best, b) => b.avgEfficiency > best.avgEfficiency ? b : best, bucketsWithData[0]);
+
+    return {
+      buckets: hoursBuckets,
+      bestByBonus,
+      bestByEfficiency,
+      totalProjects: projects.length
+    };
+  },
+
+  createInsightsUI() {
+    const analysis = this.analyze();
+    if (!analysis) {
+      return `
+        <div class="dashboard-card">
+          <h3>🔍 Project Insights</h3>
+          <div style="padding: 1rem; text-align: center; color: rgba(200, 200, 210, 0.7);">
+            Need at least 3 shipped projects to analyze patterns.
+          </div>
+        </div>
+      `;
+    }
+
+    const bucketsWithData = Object.values(analysis.buckets).filter(b => b.count > 0);
+
+    return `
+      <div class="dashboard-card">
+        <h3>🔍 Project Insights</h3>
+        <div style="margin-bottom: 1rem; padding: 0.6rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; font-size: 0.85rem;">
+          <div style="color: #10b981; font-weight: 600; margin-bottom: 0.25rem;">💡 Best Performance</div>
+          <div style="color: #c8c8d8;">
+            <strong>${analysis.bestByEfficiency.label}</strong> projects earn ${analysis.bestByEfficiency.avgEfficiency.toFixed(1)} coins/h
+            ${analysis.bestByBonus.label !== analysis.bestByEfficiency.label
+              ? ` • <strong>${analysis.bestByBonus.label}</strong> get best reviews (${analysis.bestByBonus.avgBonus.toFixed(2)}x bonus)`
+              : ''
+            }
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+          ${bucketsWithData.map(bucket => `
+            <div style="padding: 0.5rem; background: rgba(0,0,0,0.15); border-radius: 6px; text-align: center;">
+              <div style="font-size: 0.75rem; color: #a8a8b8;">${bucket.label}</div>
+              <div style="font-size: 0.9rem; font-weight: 600; color: #f0f0f8;">${bucket.avgBonus.toFixed(2)}x</div>
+              <div style="font-size: 0.7rem; color: #a8a8b8;">${bucket.count} project${bucket.count !== 1 ? 's' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+};
+
+const betProgressWidget = {
+  widgetId: 'siege-bet-progress-widget',
+
+  async init() {
+    if (!window.location.pathname.includes('/keep')) return;
+    if (document.getElementById(this.widgetId)) return;
+
+    const progressData = await this.fetchProgressData();
+    if (!progressData) return;
+
+    this.render(progressData);
+  },
+
+  async fetchProgressData() {
+    try {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+      const response = await fetch('https://siege.hackclub.com/catacombs/current_progress', {
+        headers: { 'X-CSRF-Token': csrfToken }
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('[Bet Widget] Failed to fetch progress:', error);
+      return null;
+    }
+  },
+
+  calculatePace(currentHours, goalHours, daysElapsed, daysTotal = 7) {
+    if (goalHours <= 0) return { status: 'none', pacePercent: 0 };
+
+    const expectedProgress = (daysElapsed / daysTotal) * goalHours;
+    const actualProgress = currentHours;
+    const paceRatio = expectedProgress > 0 ? actualProgress / expectedProgress : 1;
+
+    let status, color;
+    if (paceRatio >= 1.1) {
+      status = 'ahead';
+      color = '#10b981';
+    } else if (paceRatio >= 0.9) {
+      status = 'on-track';
+      color = '#60a5fa';
+    } else if (paceRatio >= 0.7) {
+      status = 'behind';
+      color = '#f59e0b';
+    } else {
+      status = 'at-risk';
+      color = '#ef4444';
+    }
+
+    return { status, color, paceRatio, pacePercent: Math.round(paceRatio * 100) };
+  },
+
+  getDaysElapsed() {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    return dayOfWeek === 0 ? 7 : dayOfWeek;
+  },
+
+  render(progressData) {
+    const { personal_hours = 0, global_hours = 0 } = progressData;
+ 
+    const history = betHistory.getHistory();
+    const pendingBets = history.bets.filter(b => b.status === 'pending');
+
+    if (pendingBets.length === 0) return;
+
+    const currentWeek = utils.getCurrentWeek();
+    const currentWeekBets = pendingBets.filter(b => b.week === currentWeek);
+
+    if (currentWeekBets.length === 0) return;
+
+    const daysElapsed = this.getDaysElapsed();
+
+    let widgetContent = '';
+    currentWeekBets.forEach(bet => {
+      const currentHours = bet.type === 'personal' ? personal_hours : global_hours;
+      const pace = this.calculatePace(currentHours, bet.goalHours, daysElapsed);
+      const progressPercent = Math.min((currentHours / bet.goalHours) * 100, 100);
+
+      const icon = bet.type === 'personal' ? '👤' : '🌍';
+      const statusIcon = pace.status === 'ahead' ? '🚀' : pace.status === 'on-track' ? '✓' : pace.status === 'behind' ? '⚠️' : '🔥';
+
+      widgetContent += `
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+          <span>${icon}</span>
+          <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;">
+            <div style="width: ${progressPercent}%; height: 100%; background: ${pace.color}; border-radius: 3px;"></div>
+          </div>
+          <span style="font-size: 0.75rem; color: ${pace.color};">${currentHours.toFixed(1)}/${bet.goalHours}h ${statusIcon}</span>
+        </div>
+      `;
+    });
+
+    const widget = document.createElement('div');
+    widget.id = this.widgetId;
+    widget.innerHTML = `
+      <div style="
+        position: fixed;
+        bottom: 1rem;
+        right: 1rem;
+        background: linear-gradient(135deg, rgba(30, 30, 42, 0.95), rgba(25, 25, 38, 0.9));
+        border: 1px solid rgba(100, 100, 120, 0.5);
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        min-width: 200px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        z-index: 9999;
+        font-family: 'IM Fell English', serif;
+      ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.8rem; font-weight: 600; color: #e0e0e8;">🎲 Active Bets</span>
+          <button id="siege-widget-close" style="background: none; border: none; color: #a8a8b8; cursor: pointer; font-size: 1rem; line-height: 1;">×</button>
+        </div>
+        ${widgetContent}
+      </div>
+    `;
+
+    document.body.appendChild(widget);
+
+    document.getElementById('siege-widget-close')?.addEventListener('click', () => {
+      widget.remove();
+    });
+  }
+};
+
 const shopUtils = {
   extractedItems: null,
 
@@ -813,13 +1469,20 @@ const projectStats = {
     const { coinsPerHour, reviewerBonus, avgScore, totalCoins, hours, week } = projectData;
 
     if (totalCoins === 0) {
-      let avgEfficiency;
-      if (week >= 5) {
-        avgEfficiency = goals.getWeek5PlusEfficiency();
+      const trendData = efficiencyTrending.calculateTrend(week);
+      let projectedEfficiency;
+
+      if (trendData && trendData.projectedEfficiency) {
+        projectedEfficiency = trendData.projectedEfficiency;
       } else {
-        avgEfficiency = this.getAverageEfficiency();
+        if (week >= 5) {
+          projectedEfficiency = goals.getWeek5PlusEfficiency();
+        } else {
+          projectedEfficiency = this.getAverageEfficiency();
+        }
       }
-      const projectedCoins = Math.round(hours * avgEfficiency);
+
+      const projectedCoins = Math.round(hours * projectedEfficiency);
 
       const stats = this.getStoredStats();
       const pastProjects = Object.values(stats);
@@ -846,7 +1509,7 @@ const projectStats = {
               ~${projectedCoins} 🪙 projected
             </div>
             <div style="font-size: 1rem; margin-bottom: 0.25rem;">
-              ${hours.toFixed(1)}h spent • ${avgEfficiency.toFixed(1)} 🪙/h avg
+              ${hours.toFixed(1)}h spent • ${projectedEfficiency.toFixed(1)} 🪙/h avg
             </div>
             <div style="font-size: 1rem; font-weight: 500; margin-bottom: 0.2rem;">
               ~×${avgReviewerBonus.toFixed(2)} reviewer bonus
@@ -857,6 +1520,7 @@ const projectStats = {
             <div style="font-size: 0.8rem; font-weight: 500; opacity: 0.6; margin-top: 0.25rem;">
               Projections based on your past efficiency
             </div>
+            ${efficiencyTrending.createBadge(week, 'dotted')}
           </div>
         </div>
       `;
@@ -909,6 +1573,7 @@ const projectStats = {
           <div style="font-size: 0.6rem; font-weight: 500;">
             Please do not fully trust the reviewer bonus & avg voter star estimates, it can be inaccurate.
           </div>
+          ${efficiencyTrending.createBadge(week)}
         </div>
       </div>
     `;
@@ -1518,6 +2183,50 @@ const goals = {
     return goals.reduce((total, goal) => total + goal.price, 0);
   },
 
+  getDailyProgress() {
+    const snapshot = this.buildMicroGoalSnapshot();
+    const dailyTarget = Number.isFinite(snapshot?.targets?.daily) ? snapshot.targets.daily : 0;
+    const dailyActual = Number.isFinite(snapshot?.progress?.dailyActual) ? snapshot.progress.dailyActual : 0;
+
+    if (dailyTarget <= 0) {
+      return {
+        target: 0,
+        actual: dailyActual,
+        percentage: dailyActual > 0 ? 100 : 0
+      };
+    }
+
+    const percentage = Math.min((dailyActual / dailyTarget) * 100, 100);
+
+    return {
+      target: dailyTarget,
+      actual: dailyActual,
+      percentage: Math.round(percentage)
+    };
+  },
+
+  getWeeklyProgress() {
+    const snapshot = this.buildMicroGoalSnapshot();
+    const weeklyTarget = Number.isFinite(snapshot?.targets?.weekly) ? snapshot.targets.weekly : 0;
+    const weeklyActual = Number.isFinite(snapshot?.progress?.weeklyActual) ? snapshot.progress.weeklyActual : 0;
+
+    if (weeklyTarget <= 0) {
+      return {
+        target: 0,
+        actual: weeklyActual,
+        percentage: weeklyActual > 0 ? 100 : 0
+      };
+    }
+
+    const percentage = Math.min((weeklyActual / weeklyTarget) * 100, 100);
+
+    return {
+      target: weeklyTarget,
+      actual: weeklyActual,
+      percentage: Math.round(percentage)
+    };
+  },
+
   getProgress() {
     const totalCost = this.getTotalCost();
     if (totalCost === 0) return { current: 0, total: 0, percentage: 100 };
@@ -1533,86 +2242,52 @@ const goals = {
   },
 
   getWeek5PlusEfficiency() {
-    const shippedStats = projectStats.getStoredStats();
-    const week5PlusProjects = Object.values(shippedStats).filter(project => project.week >= 5);
+    const stats = projectStats.getStoredStats();
+    const allProjects = Object.values(stats);
 
-    const prepWeekProjects = Object.values(shippedStats).filter(project => project.week <= 4);
+    if (allProjects.length < 1) return 6;
 
-    if (week5PlusProjects.length > 0) {
-      const projectsUnder10h = week5PlusProjects.filter(p => p.hours <= 10);
-      const projectsOver10h = week5PlusProjects.filter(p => p.hours > 10);
-
-      let week5First10Rate, week5After10Rate;
-
-      if (projectsUnder10h.length > 0) {
-        const totalCoins = projectsUnder10h.reduce((sum, p) => sum + p.total_coins, 0);
-        const totalHours = projectsUnder10h.reduce((sum, p) => sum + p.hours, 0);
-        week5First10Rate = totalCoins / totalHours;
-      } else if (prepWeekProjects.length > 0) {
-        const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
-        week5First10Rate = prepWeekEfficiency * 0.25;
-      } else {
-        const reviewerBonus = 2.0;
-        const avgVoterStars = 3.0;
-        week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
+    const weeklyEfficiency = {};
+    allProjects.forEach(p => {
+      const week = p.week;
+      if (!weeklyEfficiency[week]) {
+        weeklyEfficiency[week] = { totalCoins: 0, totalHours: 0 };
       }
+      weeklyEfficiency[week].totalCoins += p.total_coins || 0;
+      weeklyEfficiency[week].totalHours += p.hours || 0;
+    });
 
-      if (projectsOver10h.length > 0 && week5First10Rate) {
-        let totalAfter10Coins = 0;
-        let totalAfter10Hours = 0;
-        projectsOver10h.forEach(p => {
-          const first10Coins = 10 * week5First10Rate;
-          const after10Coins = p.total_coins - first10Coins;
-          const after10Hours = p.hours - 10;
-          totalAfter10Coins += after10Coins;
-          totalAfter10Hours += after10Hours;
-        });
-        week5After10Rate = totalAfter10Hours > 0 ? totalAfter10Coins / totalAfter10Hours : week5First10Rate;
-      }
+    const allWeeks = Object.keys(weeklyEfficiency)
+      .map(w => parseInt(w))
+      .filter(w => w >= 5)
+      .sort((a, b) => a - b);
 
-      if (week5First10Rate && week5After10Rate) {
-        const avgHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0) / week5PlusProjects.length;
-        if (avgHours <= 10) {
-          return week5First10Rate;
-        } else {
-          const first10Coins = 10 * week5First10Rate;
-          const after10Coins = (avgHours - 10) * week5After10Rate;
-          return (first10Coins + after10Coins) / avgHours;
+    if (allWeeks.length === 0) {
+      const prepWeeks = Object.keys(weeklyEfficiency)
+        .map(w => parseInt(w))
+        .filter(w => w <= 4);
+      if (prepWeeks.length > 1) {
+        const prepEfficiencies = prepWeeks.map(w => {
+          const data = weeklyEfficiency[w];
+          return data.totalHours > 0 ? data.totalCoins / data.totalHours : 0;
+        }).filter(e => e > 0);
+        if (prepEfficiencies.length > 0) {
+          const avgPrep = prepEfficiencies.reduce((sum, e) => sum + e, 0) / prepEfficiencies.length;
+          return avgPrep * 0.25;
         }
       }
-
-      const totalWeek5PlusCoins = week5PlusProjects.reduce((sum, p) => sum + p.total_coins, 0);
-      const totalWeek5PlusHours = week5PlusProjects.reduce((sum, p) => sum + p.hours, 0);
-      return totalWeek5PlusHours > 0 ? totalWeek5PlusCoins / totalWeek5PlusHours : 0;
+      return 4.0;
     }
 
-    const avgPrepHours = prepWeekProjects.length > 0
-      ? prepWeekProjects.reduce((sum, p) => sum + p.hours, 0) / prepWeekProjects.length
-      : 10;
-    const predictedWeeklyHours = Math.max(avgPrepHours, 10);
+    const week5Efficiencies = allWeeks.map(w => {
+      const data = weeklyEfficiency[w];
+      return data.totalHours > 0 ? data.totalCoins / data.totalHours : 0;
+    }).filter(e => e > 0);
 
-    let week5First10Rate, week5After10Rate;
-    if (prepWeekProjects.length > 0) {
-      const prepWeekEfficiency = prepWeekProjects.reduce((sum, p) => sum + p.coins_per_hour, 0) / prepWeekProjects.length;
-      week5First10Rate = prepWeekEfficiency * 0.25;
-      week5After10Rate = prepWeekEfficiency;
-    } else {
-      const reviewerBonus = 2.0;
-      const avgVoterStars = 3.0;
-      week5First10Rate = 0.5 * reviewerBonus * avgVoterStars;
-      week5After10Rate = 2.0 * reviewerBonus * avgVoterStars;
-    }
+    if (week5Efficiencies.length === 0) return 4.0;
 
-    let totalCoins;
-    if (predictedWeeklyHours <= 10) {
-      totalCoins = predictedWeeklyHours * week5First10Rate;
-    } else {
-      const first10Coins = 10 * week5First10Rate;
-      const remainingCoins = (predictedWeeklyHours - 10) * week5After10Rate;
-      totalCoins = first10Coins + remainingCoins;
-    }
-
-    return totalCoins / predictedWeeklyHours;
+    const avgWeek5Efficiency = week5Efficiencies.reduce((sum, e) => sum + e, 0) / week5Efficiencies.length;
+    return avgWeek5Efficiency;
   },
 
   estimateTimeForItem(itemPrice, currentCoins) {
@@ -1714,13 +2389,37 @@ const goals = {
     let totalUnshippedTime = 0;
     let totalUnshippedCoins = 0;
 
+    const unshippedDataRaw = localStorage.getItem('siege-utils-unshipped');
+    if (unshippedDataRaw) {
+      try {
+        const unshippedData = JSON.parse(unshippedDataRaw);
+        Object.keys(unshippedData).forEach(projectId => {
+          const projectData = unshippedData[projectId];
+          if (projectData && projectData.snapshots && projectData.snapshots.length > 0) {
+            const latestSnapshot = projectData.snapshots[projectData.snapshots.length - 1];
+            const currentHours = Math.max(0, latestSnapshot.hours - (projectData.initialHours || 0));
+            const week = projectData.week || currentWeek;
+            let efficiency;
+            if (week >= 5) {
+              efficiency = week5PlusEfficiency;
+            } else {
+              efficiency = avgEfficiency;
+            }
+            const projectedCoins = Math.round(currentHours * efficiency);
+            totalUnshippedTime += currentHours;
+            totalUnshippedCoins += projectedCoins;
+          }
+        });
+      } catch (e) {
+        console.warn('[Siege Utils] Failed to parse unshipped data:', e);
+      }
+    }
+
     Object.keys(timeTracking).forEach(projectId => {
       const tracking = timeTracking[projectId];
       if (tracking.snapshots && tracking.snapshots.length > 0) {
         const shippedStats = projectStats.getStoredStats();
-        const hasShippedData = Object.values(shippedStats).some(project =>
-          project.projectId === projectId || `project_${projectId}` in shippedStats
-        );
+        const hasShippedData = !!shippedStats[`project_${projectId}`];
 
         if (!hasShippedData) {
           const latest = tracking.snapshots[tracking.snapshots.length - 1];
@@ -1743,6 +2442,7 @@ const goals = {
     });
 
     const projectedFromUnshipped = totalUnshippedCoins;
+
     const remainingAfterUnshipped = Math.max(0, remainingCoins - projectedFromUnshipped);
     const additionalHoursNeeded = remainingAfterUnshipped > 0 && effectiveEfficiency > 0
       ? remainingAfterUnshipped / effectiveEfficiency
@@ -1790,10 +2490,30 @@ const goals = {
     const dailyRemaining = Math.max(0, dailyTarget - dailyActual);
     const weeklyRemaining = Math.max(0, weeklyTarget - weeklyActual);
 
-    const tile = (label, target, actual, remaining, accent) => {
+    const tile = (label, target, actual, remaining, accent, percentage) => {
       const remainingLabel = remaining <= 0
-        ? 'Goal met'
-        : `${formatNumber(remaining, 1)}h remaining`;
+        ? '✅ Goal met'
+        : `${formatNumber(remaining, 1)}h left`;
+
+      const progressBarHTML = `
+        <div style="
+          width: 100%;
+          height: 8px;
+          background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+          border-radius: 4px;
+          margin-top: 0.5rem;
+          position: relative;
+          overflow: hidden;
+        ">
+          <div style="
+            width: ${Math.max(2, percentage)}%;
+            height: 100%;
+            background: linear-gradient(145deg, ${accent}, ${accent}dd);
+            border-radius: 4px;
+            transition: all 0.3s ease;
+          "></div>
+        </div>
+      `;
 
       return `
         <div style="
@@ -1808,22 +2528,28 @@ const goals = {
             ${label}
           </div>
           <div style="font-size: 1.05rem; font-weight: 600; color: #2f2014; margin-top: 0.4rem;">
-            Target ${formatNumber(target, 1)}h
+            ${formatNumber(actual, 1)}h / ${formatNumber(target, 1)}h
           </div>
-          <div style="font-size: 0.78rem; color: rgba(59, 42, 26, 0.75); margin-top: 0.4rem;">
-            Logged ${formatNumber(actual, 1)}h
-          </div>
-          <div style="font-size: 0.75rem; color: rgba(59, 42, 26, 0.75); margin-top: 0.35rem;">
+          <div style="font-size: 0.78rem; color: rgba(59, 42, 26, 0.75); margin-top: 0.3rem;">
             ${remainingLabel}
           </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.4rem;">
+            <div style="font-size: 0.75rem; color: rgba(59, 42, 26, 0.75);">
+              ${formatNumber(percentage, 0)}% complete
+            </div>
+            <div style="font-size: 0.65rem; font-weight: 600; color: #059669;">
+              ${formatNumber(percentage, 0)}%
+            </div>
+          </div>
+          ${progressBarHTML}
         </div>
       `;
     };
 
     return `
       <div data-siege-microgoal-inline="true" style="margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: 0.85rem; justify-content: center;">
-        ${tile('Daily goal', dailyTarget, dailyActual, dailyRemaining, '#059669')}
-        ${tile('Weekly goal', weeklyTarget, weeklyActual, weeklyRemaining, '#2563eb')}
+        ${tile('Daily goal', dailyTarget, dailyActual, dailyRemaining, '#059669', (dailyActual / dailyTarget) * 100)}
+        ${tile('Weekly goal', weeklyTarget, weeklyActual, weeklyRemaining, '#2563eb', (weeklyActual / weeklyTarget) * 100)}
       </div>
     `;
   },
@@ -1836,6 +2562,33 @@ const goals = {
 
     const projectionData = this.getProjectionData();
     const microGoalsHTML = this.createMicroGoalSection();
+
+    const progressBarStyle = (percentage, color1, color2) => `
+      <div style="
+        width: 100%;
+        height: 24px;
+        background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+        border: 1px solid rgba(64, 43, 32, 0.2);
+        border-radius: 12px;
+        margin-bottom: 0.5rem;
+        position: relative;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      ">
+        <div style="
+          width: ${Math.max(2, percentage)}%;
+          height: calc(100% - 4px);
+          background: linear-gradient(145deg, ${color1}, ${color2});
+          border-radius: 10px;
+          margin: 2px;
+          position: absolute;
+          left: 0;
+          top: 0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+          transition: all 0.3s ease;
+        "></div>
+      </div>
+    `;
+
     return `
       <div class="siege-goals-progress" style="
         margin: 1rem 0;
@@ -1872,34 +2625,13 @@ const goals = {
           </div>
         </div>
 
+        <!-- Goals Progress -->
         <div class="siege-progress-content" id="current-content">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
             <span style="font-size: 1.3rem; font-weight: 600;">${utils.formatCoins(progress.current)} / ${utils.formatCoins(progress.total)}</span>
             <span style="font-size: 1.1rem; font-weight: 500; color: #059669;">${progress.percentage}%</span>
           </div>
-          <div style="
-            width: 100%;
-            height: 24px;
-            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
-            border: 1px solid rgba(64, 43, 32, 0.2);
-            border-radius: 12px;
-            margin-bottom: 0.75rem;
-            position: relative;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-          ">
-            <div style="
-              width: ${Math.max(2, progress.percentage)}%;
-              height: calc(100% - 4px);
-              background: linear-gradient(145deg, #10b981, #059669);
-              border-radius: 10px;
-              margin: 2px;
-              position: absolute;
-              left: 0;
-              top: 0;
-              box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
-              transition: all 0.3s ease;
-            "></div>
-          </div>
+          ${progressBarStyle(progress.percentage, '#10b981', '#059669')}
           <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
             ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(Math.max(0, progress.total - progress.current))} remaining • ${utils.formatHours(projectionData.totalHoursNeeded)} needed
           </div>
@@ -1923,31 +2655,23 @@ const goals = {
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
           ">
             <div style="
-              width: ${Math.max(2, progress.percentage)}%;
+              width: ${Math.max(2, projectionData.projectedPercentage)}%;
               height: calc(100% - 4px);
-              background: linear-gradient(145deg, #10b981, #059669);
-              border-radius: ${projectionData.projectedPercentage > progress.percentage ? '10px 0 0 10px' : '10px'};
-              margin: 2px ${projectionData.projectedPercentage > progress.percentage ? '0' : '2px'} 2px 2px;
+              background: ${projectionData.projectedPercentage > progress.percentage
+                ? 'linear-gradient(145deg, #10b981, #059669)'
+                : 'linear-gradient(145deg, #60a5fa, #3b82f6)'
+              };
+              border-radius: 10px;
+              margin: 2px;
               position: absolute;
               left: 0;
               top: 0;
-              box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
+              box-shadow: 0 1px 3px ${projectionData.projectedPercentage > progress.percentage
+                ? 'rgba(5, 150, 105, 0.3)'
+                : 'rgba(59, 130, 246, 0.3)'
+              };
               transition: all 0.3s ease;
             "></div>
-            ${projectionData.projectedPercentage > progress.percentage ? `
-            <div style="
-              width: ${projectionData.projectedPercentage - progress.percentage}%;
-              height: calc(100% - 4px);
-              background: linear-gradient(145deg, #60a5fa, #3b82f6);
-              border-radius: 0 10px 10px 0;
-              margin: 2px 2px 2px 0;
-              position: absolute;
-              left: ${progress.percentage}%;
-              top: 0;
-              box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
-              transition: all 0.3s ease;
-            "></div>
-            ` : ''}
           </div>
           <div style="font-size: 1.1rem; opacity: 0.85; text-align: center;">
             ${goals.length} goal${goals.length !== 1 ? 's' : ''} • ${utils.formatCoins(projectionData.remainingAfterUnshipped)} remaining • ${utils.formatHours(projectionData.additionalHoursNeeded)} needed
@@ -4576,6 +5300,8 @@ if (typeof window !== 'undefined') {
     goals.refreshMicroGoals();
     addWeeklyHoursPlanner();
     initCountdownTimer();
+
+    betProgressWidget.init();
     setupFooterObserver();
     homeContainer.dataset.siegeEnhanced = 'true';
 
@@ -4926,19 +5652,15 @@ if (typeof window !== 'undefined') {
         });
 
         Object.keys(weeklySnapshots).forEach(week => {
+          const weekNum = parseInt(week);
           const weekSnapshots = weeklySnapshots[week];
           const latestSnapshot = weekSnapshots[weekSnapshots.length - 1];
-          const hasShippedData = Object.values(shippedStats).some(project =>
-            project.week === parseInt(week)
-          );
 
-          if (!hasShippedData) {
-            if (!weeklyData[week]) {
-              weeklyData[week] = { hours: 0, projects: 0 };
-            }
-            weeklyData[week].hours += latestSnapshot.hours;
-            weeklyData[week].projects++;
+          if (!weeklyData[weekNum]) {
+            weeklyData[weekNum] = { hours: 0, projects: 0 };
           }
+          weeklyData[weekNum].hours += latestSnapshot.hours;
+          weeklyData[weekNum].projects++;
         });
       }
     });
@@ -4990,7 +5712,17 @@ if (typeof window !== 'undefined') {
             hours: p.hours
           }));
         } else if (weekData.hours > 0) {
-          coinsPerHour = weekNum >= 5 ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
+          const isWeek5Plus = weekNum >= 5;
+          const previousWeeksInBracket = Object.values(shippedStats).filter(p =>
+            isWeek5Plus ? (p.week >= 5 && p.week < weekNum) : (p.week <= 4 && p.week < weekNum)
+          );
+          if (previousWeeksInBracket.length > 0) {
+            const totalCoins = previousWeeksInBracket.reduce((sum, p) => sum + p.total_coins, 0);
+            const totalHours = previousWeeksInBracket.reduce((sum, p) => sum + p.hours, 0);
+            coinsPerHour = totalHours > 0 ? totalCoins / totalHours : 0;
+          } else {
+            coinsPerHour = isWeek5Plus ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
+          }
           isCoinsProjected = true;
           totalCoins = Math.round(weekData.hours * coinsPerHour);
         } else {
@@ -5015,16 +5747,7 @@ if (typeof window !== 'undefined') {
 
     const futureWeek = currentWeek + 1;
 
-    const allHistoricalEfficiency = chartData
-      .filter(d => !d.isCoinsProjected && d.coinsPerHour > 0)
-      .map(d => d.coinsPerHour);
-
     let futureWeekEfficiency = futureWeek >= 5 ? goals.getWeek5PlusEfficiency() : avgEfficiency;
-
-    if (allHistoricalEfficiency.length > 0) {
-      const efficiencyPrediction = bettingPredictor.predictPersonalEfficiency(allHistoricalEfficiency);
-      futureWeekEfficiency = Math.round(efficiencyPrediction.prediction * 0.9 * 10) / 10;
-    }
 
     let futureWeekHours = 10;
 
@@ -7857,6 +8580,12 @@ const catacombsIntelPanel = {
       `;
     }
 
+    html += timeBudgetCalculator.createUI();
+
+    html += betHistory.createHistoryUI();
+
+    html += reviewerPatterns.createInsightsUI();
+
     html += '</div>';
 
     container.innerHTML = html;
@@ -7866,6 +8595,19 @@ const catacombsIntelPanel = {
       if (placeBetBtn) {
         placeBetBtn.addEventListener('click', () => this.placePersonalBet());
       }
+    }
+
+    const calculateBudgetBtn = document.getElementById('calculate-budget-btn');
+    if (calculateBudgetBtn) {
+      calculateBudgetBtn.addEventListener('click', () => {
+        const hoursInput = document.getElementById('time-budget-hours');
+        const resultsDiv = document.getElementById('budget-results');
+        if (hoursInput && resultsDiv) {
+          const hours = parseFloat(hoursInput.value) || 15;
+          const results = timeBudgetCalculator.calculate(hours);
+          resultsDiv.innerHTML = timeBudgetCalculator.renderResults(results);
+        }
+      });
     }
 
     if (personalRec && personalRec.weekLabels && personalRec.historicalValues && personalRec.weekLabels.length >= 2) {
@@ -8217,6 +8959,13 @@ const catacombsIntelPanel = {
       const data = await response.json();
 
       if (data.success) {
+        betHistory.recordBet({
+          type: 'personal',
+          week: utils.getCurrentWeek(),
+          goalHours: hoursGoal,
+          betAmount: betAmount,
+          multiplier: multiplier
+        });
         alert(`✅ Bet placed! Goal: ${hoursGoal}h, Amount: ${betAmount} coins`);
         await this.loadData();
         this.renderPersonalTab();
@@ -8268,6 +9017,13 @@ const catacombsIntelPanel = {
       const data = await response.json();
 
       if (data.success) {
+        betHistory.recordBet({
+          type: 'global',
+          week: utils.getCurrentWeek(),
+          goalHours: hoursPrediction,
+          betAmount: betAmount,
+          multiplier: multiplier
+        });
         alert(`✅ Global bet placed! Prediction: ${hoursPrediction}h, Amount: ${betAmount} coins`);
         await this.loadData();
         this.renderGlobalTab();

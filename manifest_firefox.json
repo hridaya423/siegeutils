@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Siege Utils",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Enhance the Siege experience with better UI and features",
   "permissions": [
     "activeTab",
@@ -29,7 +29,7 @@
       "run_at": "document_end"
     }
   ],
-  "web_accessible_resources": ["catppuccin.css", "signal.css", "spooky.css", "winter.css"],
+  "web_accessible_resources": ["catppuccin.css", "signal.css", "spooky.css", "winter.css", "slack.css"],
   "icons": {
     "64": "icon64.png",
     "128": "icon128.png"
