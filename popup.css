@@ -36,6 +36,11 @@ body[data-theme="winter"] {
   color: #e3f2ff;
 }
 
+body[data-theme="slack"] {
+  background: linear-gradient(135deg, #4a154b 0%, #3f0e40 100%);
+  color: #ffffff;
+}
+
 .popup-container {
   padding: 1.5rem;
 }
@@ -64,6 +69,10 @@ body[data-theme="spooky"] .popup-title {
 
 body[data-theme="winter"] .popup-title {
   color: #89ddff;
+}
+
+body[data-theme="slack"] .popup-title {
+  color: #36c5f0;
 }
 
 .popup-subtitle {
@@ -145,6 +154,17 @@ body[data-theme="winter"] .theme-card:hover {
   transform: translateY(-2px);
 }
 
+body[data-theme="slack"] .theme-card {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(54, 197, 240, 0.2);
+}
+
+body[data-theme="slack"] .theme-card:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #36c5f0;
+  transform: translateY(-2px);
+}
+
 .theme-card input[type="radio"] {
   appearance: none;
   width: 20px;
@@ -173,6 +193,10 @@ body[data-theme="spooky"] .theme-card input[type="radio"] {
 
 body[data-theme="winter"] .theme-card input[type="radio"] {
   border: 2px solid #6bb6ff;
+}
+
+body[data-theme="slack"] .theme-card input[type="radio"] {
+  border: 2px solid #36c5f0;
 }
 
 .theme-card input[type="radio"]:checked::before {
@@ -204,6 +228,10 @@ body[data-theme="spooky"] .theme-card input[type="radio"]:checked::before {
 
 body[data-theme="winter"] .theme-card input[type="radio"]:checked::before {
   background: #6bb6ff;
+}
+
+body[data-theme="slack"] .theme-card input[type="radio"]:checked::before {
+  background: #36c5f0;
 }
 
 .theme-preview {
@@ -265,6 +293,11 @@ body[data-theme="spooky"] .theme-settings {
 body[data-theme="winter"] .theme-settings {
   background: rgba(26, 38, 51, 0.6);
   border: 1px solid rgba(107, 182, 255, 0.2);
+}
+
+body[data-theme="slack"] .theme-settings {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(54, 197, 240, 0.2);
 }
 
 .setting-toggle {
@@ -366,6 +399,16 @@ body[data-theme="winter"] #reset-custom:hover {
   background: rgba(107, 182, 255, 0.25);
 }
 
+body[data-theme="slack"] #reset-custom {
+  background: rgba(46, 182, 125, 0.2);
+  color: #ffffff;
+  border-color: rgba(46, 182, 125, 0.3);
+}
+
+body[data-theme="slack"] #reset-custom:hover {
+  background: rgba(46, 182, 125, 0.3);
+}
+
 .popup-footer {
   padding-top: 1rem;
   border-top: 1px solid;
@@ -391,6 +434,10 @@ body[data-theme="spooky"] .popup-footer {
 
 body[data-theme="winter"] .popup-footer {
   border-top-color: rgba(107, 182, 255, 0.2);
+}
+
+body[data-theme="slack"] .popup-footer {
+  border-top-color: rgba(54, 197, 240, 0.2);
 }
 
 .version {

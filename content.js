@@ -463,9 +463,9 @@ const projectStats = {
       historicalStarsAvg = pastProjects.reduce((sum, p) => sum + p.avg_score, 0) / pastProjects.length;
     }
 
-  const rbBiasTarget = Math.min(3, Math.max(0.5, historicalRbAvg));
-  const starsBiasTarget = Math.min(5, Math.max(1, historicalStarsAvg));
-  const baseFlexCeiling = Math.min(2.7, Math.max(2.2, rbBiasTarget + 0.1));
+    const rbBiasTarget = Math.min(3, Math.max(0.5, historicalRbAvg));
+    const starsBiasTarget = Math.min(5, Math.max(1, historicalStarsAvg));
+    const baseFlexCeiling = Math.min(2.7, Math.max(2.2, rbBiasTarget + 0.1));
 
     const validCombinations = [];
     const discreteVoterAverages = this.generateDiscreteVoterAverages();
@@ -736,7 +736,7 @@ const projectStats = {
     const isExplorePage = window.location.pathname === '/armory/explore';
     const shouldTrackTime = totalCoins <= 0 && !isExplorePage;
 
-  const resolvedHours = await this.resolveProjectHours(projectId, {
+    const resolvedHours = await this.resolveProjectHours(projectId, {
       fallbackHours,
       projectWeek: week,
       track: shouldTrackTime
@@ -746,7 +746,7 @@ const projectStats = {
       return null;
     }
 
-  const stats = this.getStoredStats();
+    const stats = this.getStoredStats();
 
     let estimates = { avgVoterStars: 3.0, reviewerBonus: 2.0 };
     let coinsPerHour = 0;
@@ -864,11 +864,11 @@ const projectStats = {
 
     let maxEfficiency;
     if (week <= 4) {
-      maxEfficiency = 30; 
+      maxEfficiency = 30;
     } else if (hours <= 10) {
-      maxEfficiency = 7.5; 
+      maxEfficiency = 7.5;
     } else {
-      const maxFirst10 = 7.5; 
+      const maxFirst10 = 7.5;
       const maxAfter10 = 30;
       maxEfficiency = (10 * maxFirst10 + (hours - 10) * maxAfter10) / hours;
     }
@@ -916,6 +916,49 @@ const projectStats = {
 
   createDetailedStats(projectData) {
     const { avgScore, reviewerBonus, week, hours, totalCoins, coinsPerHour } = projectData;
+
+    if (totalCoins === 0) {
+      let avgEfficiency;
+      if (week >= 5) {
+        avgEfficiency = goals.getWeek5PlusEfficiency();
+      } else {
+        avgEfficiency = this.getAverageEfficiency();
+      }
+      const projectedCoins = Math.round(hours * avgEfficiency);
+
+      const stats = this.getStoredStats();
+      const pastProjects = Object.values(stats);
+
+      let avgReviewerBonus = 1.5;
+      let avgVoterStars = 3.0;
+
+      if (pastProjects.length > 0) {
+        avgReviewerBonus = pastProjects.reduce((sum, p) => sum + p.reviewer_bonus, 0) / pastProjects.length;
+        avgVoterStars = pastProjects.reduce((sum, p) => sum + p.avg_score, 0) / pastProjects.length;
+      }
+
+      return `
+        <div class="reviewer-feedback-container">
+          <h3 class="reviewer-feedback-title">Project Stats (Projected)</h3>
+          <div class="reviewer-feedback-content siege-project-stats-content">
+            <div class="siege-project-stats-row">
+              <span class="siege-project-stats-metric" style="color: #60a5fa;">~${projectedCoins} 🪙 projected</span>
+              <span class="siege-project-stats-secondary">(${avgEfficiency.toFixed(1)} 🪙/h avg)</span>
+            </div>
+            <div class="siege-project-stats-row">
+              <span class="siege-project-stats-metric">~×${avgReviewerBonus.toFixed(2)} reviewer bonus</span>
+              <span class="siege-project-stats-metric">~${avgVoterStars.toFixed(1)}/5 ⭐ avg voter stars</span>
+            </div>
+          </div>
+          <div class="siege-project-stats-footer">
+            Week ${week} • ${hours.toFixed(1)}h spent • Unshipped
+          </div>
+          <div style="font-size: 0.6rem; font-weight: 500;">
+            Projections based on your past efficiency. Estimates may be inaccurate.
+          </div>
+        </div>
+      `;
+    }
 
     let maxEfficiency;
     if (week <= 4) {
@@ -1113,7 +1156,7 @@ const goals = {
     return stored ? JSON.parse(stored) : [];
   },
   sideloadCache: new Map(),
-  
+
   saveGoals(goals) {
     localStorage.setItem('siege-utils-goals', JSON.stringify(goals));
   },
@@ -1258,7 +1301,7 @@ const goals = {
               console.warn('[Siege Utils] Failed to store today hours:', error);
             }
           }
-        } 
+        }
       }
     }
 
@@ -1276,13 +1319,36 @@ const goals = {
     const timeline = this.computeTimelineMeta();
     const hoursSummary = this.getHoursSummary();
 
-    const remainingHours = Math.max(0, projectionData.totalHoursNeeded || 0);
+    const totalUnshippedCoins = projectionData.projectedFromUnshipped || 0;
+    const progress = this.getProgress();
+    const remainingCoinsAfterProjected = Math.max(0, progress.total - progress.current - totalUnshippedCoins);
+
+    const avgEfficiency = projectStats.getAverageEfficiency();
+    const week5PlusEfficiency = this.getWeek5PlusEfficiency();
+    const currentWeek = utils.getCurrentWeek();
+
+    let adjustedHoursNeeded;
+    if (currentWeek >= 5) {
+      adjustedHoursNeeded = remainingCoinsAfterProjected / week5PlusEfficiency;
+    } else {
+      const prepWeeksRemaining = Math.max(0, 5 - currentWeek);
+      const avgHoursPerWeek = 8;
+      const hoursInRemainingPrepWeeks = prepWeeksRemaining * avgHoursPerWeek;
+      const coinsFromPrepWeeks = hoursInRemainingPrepWeeks * avgEfficiency;
+      const coinsNeededInWeek5Plus = Math.max(0, remainingCoinsAfterProjected - coinsFromPrepWeeks);
+      const hoursNeededInWeek5Plus = coinsNeededInWeek5Plus / week5PlusEfficiency;
+      adjustedHoursNeeded = hoursInRemainingPrepWeeks + hoursNeededInWeek5Plus;
+    }
+
+    const remainingHours = Math.max(0, adjustedHoursNeeded);
 
     const daysRemaining = Math.max(1, timeline.daysRemaining || 1);
     const weeksRemaining = Math.max(1, timeline.weeksRemaining || 1);
 
-    const targetDaily = remainingHours > 0 ? remainingHours / daysRemaining : 0;
-    const targetWeekly = remainingHours > 0 ? remainingHours / weeksRemaining : 0;
+    const idealDailyTarget = remainingHours > 0 ? remainingHours / daysRemaining : 0;
+    const targetDaily = Math.min(idealDailyTarget, 4);
+
+    const targetWeekly = targetDaily * 7;
 
     const effectiveDaysElapsed = Math.max(1, Math.min(7, timeline.daysElapsedThisWeek || 1));
     const weeklyActual = hoursSummary.currentWeekHours || 0;
@@ -1297,6 +1363,7 @@ const goals = {
     return {
       computedAt: new Date().toISOString(),
       remainingHours,
+      remainingCoinsAfterProjected,
       targets: {
         daily: Number.isFinite(targetDaily) ? Number(targetDaily.toFixed(2)) : 0,
         weekly: Number.isFinite(targetWeekly) ? Number(targetWeekly.toFixed(2)) : 0
@@ -1390,7 +1457,7 @@ const goals = {
           const items = techTreeData[category].branches[device];
           Object.values(items).forEach(item => {
             if (item.title && requiresText.includes(item.title)) {
-              requiredItems.push({...item, category, device});
+              requiredItems.push({ ...item, category, device });
             }
           });
         });
@@ -2032,8 +2099,8 @@ const routePlanner = {
     if (!techTreeData?.[category]?.branches?.[device]) return;
 
     if (currentRouteItem &&
-        currentRouteItem.category === category &&
-        currentRouteItem.device === device) {
+      currentRouteItem.category === category &&
+      currentRouteItem.device === device) {
       return;
     }
 
@@ -2459,7 +2526,7 @@ const routePlanner = {
       const count = levelNodes.length || 1;
       return count * nodeWidth + (count - 1) * horizontalGap;
     });
-    
+
     const maxRowWidth = Math.max(...levelWidths, nodeWidth);
     const svgWidth = paddingX * 2 + maxRowWidth;
     const svgHeight = paddingY * 2 + (levels.length > 0
@@ -2829,7 +2896,7 @@ const api = {
       ]);
 
       userCoins = coins.coins || 0;
-      userPurchases = purchases.purchases || [];
+      userPurchases = purchases.purchases || purchases || [];
       userGoals = goals.getStoredGoals();
       goals.refreshMicroGoals();
       return true;
@@ -2864,7 +2931,15 @@ const components = {
     return `
       <header class="siege-shop-header">
         <h1 class="siege-shop-title">Market</h1>
-        <div class="siege-coins-display">${utils.formatCoins(userCoins)}</div>
+        <div class="siege-header-actions">
+          <button class="siege-view-orders-btn" id="siege-view-orders-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            View Orders
+          </button>
+          <div class="siege-coins-display">${utils.formatCoins(userCoins)}</div>
+        </div>
       </header>
     `;
   },
@@ -3145,6 +3220,74 @@ const components = {
     setTimeout(() => {
       toast.remove();
     }, 3000);
+  },
+
+  createOrdersModal() {
+    const modal = document.createElement('div');
+    modal.className = 'siege-modal-overlay';
+    modal.id = 'siege-orders-modal';
+    modal.style.display = 'flex';
+
+    const totalSpent = userPurchases.reduce((sum, purchase) => {
+      const spent = purchase.total_coins_spent || 0;
+      return sum + spent;
+    }, 0);
+
+    const ordersHTML = userPurchases.length === 0
+      ? '<p class="siege-orders-empty">No orders yet. Start shopping to see your purchase history!</p>'
+      : userPurchases.map(purchase => {
+        const itemPrice = purchase.total_coins_spent || 0;
+        const quantity = purchase.quantity || 1;
+        const itemName = purchase.item_name || 'Unknown Item';
+        const displayName = quantity > 1 ? `${itemName} (x${quantity})` : itemName;
+
+        return `
+            <div class="siege-order-item">
+              <span class="siege-order-name">${displayName}</span>
+              <div class="siege-order-price">${utils.formatCoins(itemPrice)}</div>
+            </div>
+          `;
+      }).join('');
+
+    modal.innerHTML = `
+      <div class="siege-modal-container siege-orders-modal-container">
+        <div class="siege-modal-content siege-orders-content">
+          <div class="siege-orders-header">
+            <h3 class="siege-modal-title">Purchase History</h3>
+            <button class="siege-orders-close" id="siege-orders-close">✕</button>
+          </div>
+
+          <div class="siege-orders-summary">
+            <div class="siege-orders-stat">
+              <span class="siege-orders-stat-label">Total Orders</span>
+              <span class="siege-orders-stat-value">${userPurchases.length}</span>
+            </div>
+            <div class="siege-orders-stat">
+              <span class="siege-orders-stat-label">Total Spent</span>
+              <span class="siege-orders-stat-value">${utils.formatCoins(totalSpent)}</span>
+            </div>
+          </div>
+
+          <div class="siege-orders-list">
+            ${ordersHTML}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeBtn = modal.querySelector('#siege-orders-close');
+    const overlay = modal;
+
+    closeBtn.addEventListener('click', () => modal.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        modal.remove();
+      }
+    });
+
+    return modal;
   }
 };
 
@@ -3338,6 +3481,16 @@ const handlers = {
     routePlanner.renderCurrentRoute();
   },
 
+  handleViewOrdersClick(event) {
+    const button = event.target.closest('.siege-view-orders-btn');
+    if (!button) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    components.createOrdersModal();
+  },
+
   handleProgressTabClick(event) {
     const tab = event.target.closest('.siege-progress-tab');
     if (!tab) return;
@@ -3393,6 +3546,7 @@ async function render() {
   container.addEventListener('click', handlers.handleRouteButtonClick);
   container.addEventListener('click', handlers.handleRouteToggle);
   container.addEventListener('click', handlers.handleProgressTabClick);
+  container.addEventListener('click', handlers.handleViewOrdersClick);
 
   await routePlanner.renderCurrentRoute();
 }
@@ -3684,9 +3838,9 @@ function extractCardData(card) {
     const statusElement = card.querySelector('.project-status-indicator');
     const statusText = statusElement ? statusElement.textContent.trim() : '';
     const fallbackShipped = statusText.includes('🪙') ||
-                           /\d+\.\d+/.test(statusText) ||
-                           statusText.toLowerCase().includes('submitted for review') ||
-                           statusText.toLowerCase().includes('under review');
+      /\d+\.\d+/.test(statusText) ||
+      statusText.toLowerCase().includes('submitted for review') ||
+      statusText.toLowerCase().includes('under review');
 
     const efficiencyBox = card.querySelector('.siege-efficiency-box');
     let fallbackHours = 0;
@@ -3755,10 +3909,10 @@ async function enhanceProjectCards() {
         const statusElement = card.querySelector('.project-status-indicator');
         const statusText = statusElement ? statusElement.textContent : 'NO STATUS ELEMENT';
         const hasCoins = statusText.includes('🪙') ||
-                         /Value:\s*\d+(\.\d+)?/.test(statusText) ||
-                         /\d+\.\d+\s*🪙/.test(statusText) ||
-                         statusText.includes('coin') ||
-                         /\d+\s*coins?/i.test(statusText);
+          /Value:\s*\d+(\.\d+)?/.test(statusText) ||
+          /\d+\.\d+\s*🪙/.test(statusText) ||
+          statusText.includes('coin') ||
+          /\d+\s*coins?/i.test(statusText);
 
         const isUnshipped = !hasCoins;
 
@@ -3836,38 +3990,49 @@ async function enhanceProjectPage() {
     const timeElement = document.querySelector('.project-week-time');
     const valueElement = document.querySelector('.project-status-display');
     const titleElement = document.querySelector('.projects-title');
-    const avgScoreElement = document.querySelector('.submit-button.submit-button--disabled');
+    const avgScoreElement = document.querySelector('.submit-button.submit-button--disabled') ||
+      document.querySelector('.project-score');
 
-    if (!timeElement || !valueElement || !titleElement || !avgScoreElement) {
+    if (!timeElement || !titleElement) {
       return;
     }
 
     const timeStr = timeElement.textContent.replace('Time spent: ', '');
-    const hours = projectStats.parseTimeString(timeStr);
-    const valueStr = valueElement.textContent;
-    const totalCoins = projectStats.parseCoins(valueStr);
+    const fallbackHours = projectStats.parseTimeString(timeStr);
+
+    const valueStr = valueElement ? valueElement.textContent : '';
+    const totalCoins = valueElement ? projectStats.parseCoins(valueStr) : 0;
+
     const titleStr = titleElement.textContent;
     const week = projectStats.parseWeek(titleStr);
 
-    const avgScoreMatch = avgScoreElement.textContent.match(/Avg\.\s*Score:\s*([\d.]+)/);
-    const avgScore = avgScoreMatch ? parseFloat(avgScoreMatch[1]) : null;
+    let avgScore = null;
+    if (avgScoreElement) {
+      const avgScoreMatch = avgScoreElement.textContent.match(/Avg\.\s*Score:\s*([\d.]+)/);
+      avgScore = avgScoreMatch ? parseFloat(avgScoreMatch[1]) : null;
+    }
 
-    if (!hours || !totalCoins) {
+    const isUnshipped = totalCoins === 0;
+    const resolvedHours = await projectStats.resolveProjectHours(projectId, {
+      fallbackHours,
+      projectWeek: week,
+      track: isUnshipped
+    });
+
+    if (!resolvedHours && resolvedHours !== 0) {
       return;
     }
 
-    const estimates = projectStats.estimateReviewerAndVoterStats(totalCoins, week, hours);
-    const coinsPerHour = projectStats.calculateEfficiency(totalCoins, hours);
-    const isUnshipped = totalCoins === 0;
+    const currentWeek = utils.getCurrentWeek();
+    const isCurrentWeek = week === currentWeek;
 
-    if (isUnshipped) {
-      projectStats.trackProjectTime(projectId, hours, week);
-    }
+    const estimates = projectStats.estimateReviewerAndVoterStats(totalCoins, week, resolvedHours);
+    const coinsPerHour = projectStats.calculateEfficiency(totalCoins, resolvedHours);
 
     const projectData = {
       projectId,
       week,
-      hours,
+      hours: resolvedHours,
       totalCoins,
       avgScore: avgScore || estimates.avgVoterStars,
       reviewerBonus: estimates.reviewerBonus,
@@ -3879,7 +4044,7 @@ async function enhanceProjectPage() {
       avg_score: avgScore || estimates.avgVoterStars,
       reviewer_bonus: estimates.reviewerBonus,
       week: week,
-      hours: hours,
+      hours: resolvedHours,
       total_coins: totalCoins,
       coins_per_hour: coinsPerHour
     };
@@ -3890,30 +4055,44 @@ async function enhanceProjectPage() {
     let projectionsHTML = '';
     if (isCurrentWeek && isUnshipped) {
       const unshippedHours = projectStats.getUnshippedTime(projectId);
-      projectionsHTML = projectStats.createProjectProjections(projectId, unshippedHours, week);
+      const hoursToProject = unshippedHours > 0 ? unshippedHours : resolvedHours;
+      projectionsHTML = projectStats.createProjectProjections(projectId, hoursToProject, week);
     }
 
     const reviewerFeedback = document.querySelector('.reviewer-feedback-indicator') ||
-                            document.querySelector('[class*="reviewer"]') ||
-                            document.querySelector('[class*="feedback"]');
+      document.querySelector('[class*="reviewer"]') ||
+      document.querySelector('[class*="feedback"]');
 
     let insertionPoint;
     if (reviewerFeedback) {
       insertionPoint = reviewerFeedback;
       insertionPoint.insertAdjacentHTML('beforebegin', detailedStats + projectionsHTML);
     } else {
-      insertionPoint = document.querySelector('.project-details') ||
-                      document.querySelector('.project-content') ||
-                      document.querySelector('.project-info') ||
-                      document.querySelector('main') ||
-                      document.querySelector('[class*="project"]') ||
-                      document.querySelector('[class*="content"]');
+      const statusDisplay = document.querySelector('.project-status-display');
+      const timeDisplay = document.querySelector('.project-week-time');
 
-
-      if (insertionPoint) {
-        insertionPoint.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
+      if (statusDisplay) {
+        const container = statusDisplay.closest('.project-header') || statusDisplay.parentElement;
+        if (container && container.classList.contains('project-header')) {
+          container.insertAdjacentHTML('afterend', detailedStats + projectionsHTML);
+        } else {
+          statusDisplay.insertAdjacentHTML('afterend', detailedStats + projectionsHTML);
+        }
+      } else if (timeDisplay) {
+        timeDisplay.insertAdjacentHTML('afterend', detailedStats + projectionsHTML);
       } else {
-        document.body.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
+        insertionPoint = document.querySelector('.project-details') ||
+          document.querySelector('.project-content') ||
+          document.querySelector('.project-info') ||
+          document.querySelector('main') ||
+          document.querySelector('[class*="project"]') ||
+          document.querySelector('[class*="content"]');
+
+        if (insertionPoint) {
+          insertionPoint.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
+        } else {
+          document.body.insertAdjacentHTML('beforeend', detailedStats + projectionsHTML);
+        }
       }
     }
 
@@ -4554,9 +4733,9 @@ if (typeof window !== 'undefined') {
     const totalProjects = shippedProjects + unshippedProjects;
 
     const avgCoinsPerHour = totalShippedHours > 0 ? (totalShippedCoins / totalShippedHours) :
-                           (currentCoins > 0 && totalHours > 0 ? currentCoins / totalHours : 12);
+      (currentCoins > 0 && totalHours > 0 ? currentCoins / totalHours : 12);
 
-    let avgReviewerBonus = 1.5; 
+    let avgReviewerBonus = 1.5;
     let avgVoterStars = 3.0;
 
     if (shippedProjects > 0) {
@@ -4796,27 +4975,40 @@ if (typeof window !== 'undefined') {
         const currentWeek = utils.getCurrentWeek();
         const isHoursProjected = weekNum > currentWeek;
 
+        let projects = [];
+        let totalCoins = 0;
+
         if (hasShippedData) {
           const totalWeekCoins = weekShippedProjects.reduce((sum, p) => sum + p.total_coins, 0);
           const totalWeekHours = weekShippedProjects.reduce((sum, p) => sum + p.hours, 0);
           coinsPerHour = totalWeekHours > 0 ? totalWeekCoins / totalWeekHours : 0;
           isCoinsProjected = false;
+          totalCoins = totalWeekCoins;
+
+          projects = weekShippedProjects.map(p => ({
+            coins: p.total_coins,
+            hours: p.hours
+          }));
         } else if (weekData.hours > 0) {
           coinsPerHour = weekNum >= 5 ? goals.getWeek5PlusEfficiency() : projectStats.getAverageEfficiency();
           isCoinsProjected = true;
+          totalCoins = Math.round(weekData.hours * coinsPerHour);
         } else {
           coinsPerHour = 0;
           isCoinsProjected = false;
+          totalCoins = 0;
         }
 
         return {
           week: weekNum,
           hours: weekData.hours,
           coinsPerHour,
+          totalCoins,
           label: `Week ${week}`,
           isProjected: isCoinsProjected,
           isCoinsProjected,
-          isHoursProjected
+          isHoursProjected,
+          projects
         };
       });
     const avgEfficiency = projectStats.getAverageEfficiency();
@@ -4888,6 +5080,10 @@ if (typeof window !== 'undefined') {
                     <span>🪙/h earned</span>
                   </span>
                   <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <span style="width: 10px; height: 10px; border-radius: 3px; background: #f59e0b;"></span>
+                    <span>Total coins</span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
                     <span style="width: 10px; height: 10px; border-radius: 3px; border: 1px dashed rgba(148, 163, 184, 0.8); background: rgba(148, 163, 184, 0.12);"></span>
                     <span>Projected</span>
                   </span>
@@ -4957,6 +5153,7 @@ ${legendMarkup}
     const labels = chartData.map(d => `W${d.week}`);
     const hoursData = chartData.map(d => d.hours);
     const coinsData = chartData.map(d => d.coinsPerHour);
+    const totalCoinsData = chartData.map(d => d.totalCoins);
 
     const maxHours = Math.max(...hoursData.filter(h => h !== null && h !== undefined));
 
@@ -4965,10 +5162,14 @@ ${legendMarkup}
       return c !== null && c !== undefined && hours > 0;
     });
     const maxCoins = validCoinsData.length > 0 ? Math.max(...validCoinsData) : 0;
+    const validTotalCoinsData = totalCoinsData.filter(c => c !== null && c !== undefined && c > 0);
+    const maxTotalCoins = validTotalCoinsData.length > 0 ? Math.max(...validTotalCoinsData) : 0;
 
     const hoursSuggestedMax = Math.max(16, Math.ceil(maxHours / 4) * 4);
 
     const coinsSuggestedMax = Math.max(4, Math.ceil(maxCoins / 4) * 4);
+
+    const totalCoinsSuggestedMax = Math.max(100, Math.ceil(maxTotalCoins / 100) * 100);
 
     new Chart(ctx, {
       type: 'line',
@@ -5023,6 +5224,34 @@ ${legendMarkup}
             pointRadius: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? 4 : 5,
             pointHoverRadius: 7,
             yAxisID: 'y1',
+            segment: {
+              borderDash: (ctx) => {
+                const startProjected = chartData[ctx.p0DataIndex]?.isCoinsProjected || chartData[ctx.p0DataIndex]?.isProjected || false;
+                const endProjected = chartData[ctx.p1DataIndex]?.isCoinsProjected || chartData[ctx.p1DataIndex]?.isProjected || false;
+                return startProjected && endProjected ? [6, 6] : undefined;
+              }
+            }
+          },
+          {
+            data: totalCoinsData,
+            borderColor: '#f59e0b',
+            backgroundColor: (context) => {
+              const ctx = context.chart.ctx;
+              const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
+              gradient.addColorStop(0, 'rgba(245, 158, 11, 0.4)');
+              gradient.addColorStop(0.5, 'rgba(245, 158, 11, 0.25)');
+              gradient.addColorStop(1, 'rgba(245, 158, 11, 0.05)');
+              return gradient;
+            },
+            borderWidth: 2,
+            fill: 'origin',
+            tension: 0.25,
+            pointBackgroundColor: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? '#ffffff' : '#f59e0b',
+            pointBorderColor: '#f59e0b',
+            pointBorderWidth: 2,
+            pointRadius: (ctx) => chartData[ctx.dataIndex]?.isCoinsProjected ? 4 : 5,
+            pointHoverRadius: 7,
+            yAxisID: 'y2',
             segment: {
               borderDash: (ctx) => {
                 const startProjected = chartData[ctx.p0DataIndex]?.isCoinsProjected || chartData[ctx.p0DataIndex]?.isProjected || false;
@@ -5116,6 +5345,36 @@ ${legendMarkup}
             border: {
               display: false
             }
+          },
+          y2: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            min: 0,
+            suggestedMax: totalCoinsSuggestedMax,
+            title: {
+              display: true,
+              text: 'Total Coins',
+              color: '#d97706',
+              font: {
+                size: 12,
+                weight: '700'
+              }
+            },
+            grid: {
+              drawOnChartArea: false
+            },
+            ticks: {
+              stepSize: 4,
+              color: '#d97706',
+              font: {
+                size: 11,
+                weight: '600'
+              }
+            },
+            border: {
+              display: false
+            }
           }
         },
         plugins: {
@@ -5135,13 +5394,34 @@ ${legendMarkup}
               label(context) {
                 const dataIndex = context.dataIndex;
                 const meta = chartData[dataIndex] || {};
-                const isHoursSeries = context.datasetIndex === 0;
-                const suffix = (!isHoursSeries && meta.isCoinsProjected) ? ' (projected)' : '';
-                const label = isHoursSeries ? 'Hours' : '🪙/h';
-                const value = isHoursSeries
-                  ? `${context.parsed.y.toFixed(1)}h`
-                  : `${context.parsed.y.toFixed(2)} 🪙/h`;
-                return `${label}: ${value}${suffix}`;
+                const datasetIndex = context.datasetIndex;
+
+                if (datasetIndex === 0) {
+                  return `Hours: ${context.parsed.y.toFixed(1)}h`;
+                } else if (datasetIndex === 1) {
+                  const suffix = meta.isCoinsProjected ? ' (projected)' : '';
+                  return `🪙/h: ${context.parsed.y.toFixed(2)} 🪙/h${suffix}`;
+                } else if (datasetIndex === 2) {
+                  const suffix = meta.isCoinsProjected ? ' (projected)' : '';
+                  return `Coins: ${utils.formatCoins(context.parsed.y)}${suffix}`;
+                }
+              },
+              afterBody(context) {
+                if (context.length === 0) return [];
+                const dataIndex = context[0].dataIndex;
+                const meta = chartData[dataIndex] || {};
+
+                if (!meta.projects || meta.projects.length === 0) {
+                  return [];
+                }
+
+                const lines = [''];
+                meta.projects.forEach((project, idx) => {
+                  const coinsFormatted = utils.formatCoins(project.coins);
+                  lines.push(`Project ${idx + 1}: ${coinsFormatted} (${project.hours.toFixed(1)}h)`);
+                });
+
+                return lines;
               }
             }
           }
@@ -5283,32 +5563,32 @@ ${legendMarkup}
               (<span style="font-weight: 600;">${currentWeekHours.toFixed(1)}h</span> / ${weekGoal}h)
             </span>
             ${(() => {
-              if (remainingHours <= 0) return '';
+        if (remainingHours <= 0) return '';
 
-              const parts = [];
+        const parts = [];
 
-              if (todayIsWorkDay) {
-                if (todayLoggedHours !== null && todayLoggedHours > 0) {
-                  parts.push(`${todayLoggedHours.toFixed(1)}h logged today`);
-                }
+        if (todayIsWorkDay) {
+          if (todayLoggedHours !== null && todayLoggedHours > 0) {
+            parts.push(`${todayLoggedHours.toFixed(1)}h logged today`);
+          }
 
-                if (todayRemainingHours > 0) {
-                  parts.push(`${todayRemainingHours.toFixed(1)}h pending today`);
-                } else if (todayLoggedHours === null && todayTargetHours > 0) {
-                  parts.push(`${todayTargetHours.toFixed(1)}h goal today`);
-                }
-              }
+          if (todayRemainingHours > 0) {
+            parts.push(`${todayRemainingHours.toFixed(1)}h pending today`);
+          } else if (todayLoggedHours === null && todayTargetHours > 0) {
+            parts.push(`${todayTargetHours.toFixed(1)}h goal today`);
+          }
+        }
 
-              if (futureFlexibleDays > 0 && hoursPerFlexDay > 0) {
-                parts.push(`${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''}`);
-              }
+        if (futureFlexibleDays > 0 && hoursPerFlexDay > 0) {
+          parts.push(`${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''}`);
+        }
 
-              return parts.length > 0 ? `
+        return parts.length > 0 ? `
                 <span style="font-size: 0.8rem; color: #047857; font-weight: 500;">
                   • ${parts.join(' • ')}
                 </span>
               ` : '';
-            })()}
+      })()}
           </div>
           <span id="planner-arrow" style="font-size: 0.75rem; color: #6b5437; transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);">▼</span>
         </summary>
@@ -5321,45 +5601,45 @@ ${legendMarkup}
           ${remainingHours > 0 ? `
             <div style="font-size: 0.85rem; color: #047857;">
               ${todayRemainingHours > 0
-                ? `${todayRemainingHours.toFixed(1)}h pending today${futureFlexibleDays > 0 ? `, ~${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} future day${futureFlexibleDays !== 1 ? 's' : ''}` : ''}`
-                : futureFlexibleDays > 0
-                  ? `~${hoursPerFlexDay.toFixed(1)}h per flexible day (${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''})`
-                  : 'All set for today!'
-              }
+          ? `${todayRemainingHours.toFixed(1)}h pending today${futureFlexibleDays > 0 ? `, ~${hoursPerFlexDay.toFixed(1)}h/day for ${futureFlexibleDays} future day${futureFlexibleDays !== 1 ? 's' : ''}` : ''}`
+          : futureFlexibleDays > 0
+            ? `~${hoursPerFlexDay.toFixed(1)}h per flexible day (${futureFlexibleDays} day${futureFlexibleDays !== 1 ? 's' : ''})`
+            : 'All set for today!'
+        }
             </div>
           ` : ''}
         </div>
 
         <div id="daily-breakdown" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
           ${dayNames.map((day, i) => {
-            const isPast = i < dayOfWeek;
-            const isToday = i === dayOfWeek;
-            const isWorkDay = config.workDays[i];
-            const fixedHours = config.fixedHours[i];
-            let displayValue;
-            if (isPast) {
-              displayValue = '-';
-            } else if (isToday && todayLoggedHours !== null) {
-              displayValue = `${todayLoggedHours.toFixed(1)}h`;
-            } else if (fixedHours > 0) {
-              displayValue = `${fixedHours.toFixed(1)}h`;
-            } else if (isWorkDay) {
-              displayValue = `${hoursPerFlexDay.toFixed(1)}h`;
-            } else {
-              displayValue = '0h';
-            }
+          const isPast = i < dayOfWeek;
+          const isToday = i === dayOfWeek;
+          const isWorkDay = config.workDays[i];
+          const fixedHours = config.fixedHours[i];
+          let displayValue;
+          if (isPast) {
+            displayValue = '-';
+          } else if (isToday && todayLoggedHours !== null) {
+            displayValue = `${todayLoggedHours.toFixed(1)}h`;
+          } else if (fixedHours > 0) {
+            displayValue = `${fixedHours.toFixed(1)}h`;
+          } else if (isWorkDay) {
+            displayValue = `${hoursPerFlexDay.toFixed(1)}h`;
+          } else {
+            displayValue = '0h';
+          }
 
-            const statusLabel = isPast ? '' : (isToday && todayLoggedHours !== null
-              ? 'Logged'
-              : (fixedHours > 0 ? 'Fixed' : (isWorkDay ? 'Flex' : 'Off')));
+          const statusLabel = isPast ? '' : (isToday && todayLoggedHours !== null
+            ? 'Logged'
+            : (fixedHours > 0 ? 'Fixed' : (isWorkDay ? 'Flex' : 'Off')));
 
-            const amountColor = isPast
-              ? '#9ca3af'
-              : (isToday && todayLoggedHours !== null
-                ? '#2563eb'
-                : (isWorkDay ? '#059669' : '#dc2626'));
+          const amountColor = isPast
+            ? '#9ca3af'
+            : (isToday && todayLoggedHours !== null
+              ? '#2563eb'
+              : (isWorkDay ? '#059669' : '#dc2626'));
 
-            return `
+          return `
               <div style="
                 padding: 0.5rem;
                 background: ${isPast ? 'rgba(0,0,0,0.1)' : (isToday ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255,255,255,0.05)')};
@@ -5381,7 +5661,7 @@ ${legendMarkup}
                 ` : ''}
               </div>
             `;
-          }).join('')}
+        }).join('')}
         </div>
 
         <details style="margin-top: 1rem;">
@@ -5465,29 +5745,29 @@ ${legendMarkup}
     }
 
     document.getElementById('save-schedule')?.addEventListener('click', () => {
-        const persistCheckbox = document.getElementById('persist-schedule');
-        const newConfig = {
-          workDays: [],
-          fixedHours: [],
-          persistAcrossWeeks: persistCheckbox?.checked || false,
-          savedWeek: currentWeek
-        };
+      const persistCheckbox = document.getElementById('persist-schedule');
+      const newConfig = {
+        workDays: [],
+        fixedHours: [],
+        persistAcrossWeeks: persistCheckbox?.checked || false,
+        savedWeek: currentWeek
+      };
 
-        for (let i = 0; i < 7; i++) {
-          const workdayCheckbox = document.getElementById(`workday-${i}`);
-          const fixedHoursInput = document.getElementById(`fixed-hours-${i}`);
+      for (let i = 0; i < 7; i++) {
+        const workdayCheckbox = document.getElementById(`workday-${i}`);
+        const fixedHoursInput = document.getElementById(`fixed-hours-${i}`);
 
-          newConfig.workDays[i] = workdayCheckbox?.checked || false;
-          newConfig.fixedHours[i] = parseFloat(fixedHoursInput?.value || '0');
-        }
+        newConfig.workDays[i] = workdayCheckbox?.checked || false;
+        newConfig.fixedHours[i] = parseFloat(fixedHoursInput?.value || '0');
+      }
 
-        localStorage.setItem('siegeutils_weeklydata', JSON.stringify(newConfig));
+      localStorage.setItem('siegeutils_weeklydata', JSON.stringify(newConfig));
 
-        document.querySelector('[data-siege-hours-planner]')?.remove();
-        addWeeklyHoursPlanner();
+      document.querySelector('[data-siege-hours-planner]')?.remove();
+      addWeeklyHoursPlanner();
 
-        components.showToast('Schedule saved! ✅');
-      });
+      components.showToast('Schedule saved! ✅');
+    });
   }
 
   function initCountdownTimer() {
@@ -5511,32 +5791,32 @@ ${legendMarkup}
   }
 
   function updateCountdown() {
-      const countdownElement = document.getElementById('time-till-next-week');
-      if (!countdownElement) return;
+    const countdownElement = document.getElementById('time-till-next-week');
+    if (!countdownElement) return;
 
-      const now = new Date();
+    const now = new Date();
 
-      let nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0));
+    let nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 0, 0));
 
-      while (nextMonday.getUTCDay() !== 1) {
-          nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
-      }
+    while (nextMonday.getUTCDay() !== 1) {
+      nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
+    }
 
-      if (nextMonday.getTime() < now.getTime()) {
-          nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
-      }
+    if (nextMonday.getTime() < now.getTime()) {
+      nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
+    }
 
-      const diff = nextMonday.getTime() - now.getTime();
+    const diff = nextMonday.getTime() - now.getTime();
 
-      if (diff > 0) {
-          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (diff > 0) {
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
-          countdownElement.textContent = `${days}d ${hours}h ${minutes}m`;
-      } else {
-          countdownElement.textContent = "The new week has begun!";
-      }
+      countdownElement.textContent = `${days}d ${hours}h ${minutes}m`;
+    } else {
+      countdownElement.textContent = "The new week has begun!";
+    }
   }
 
   function removeMarketDialogueElements(root = document) {
@@ -5623,7 +5903,7 @@ ${legendMarkup}
 
     if (shopItems) {
       window.siegeUtilsShopItems = shopItems;
-    } 
+    }
   }
 
   function addCastleTooltips() {
@@ -5724,12 +6004,12 @@ ${legendMarkup}
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
 
-  history.pushState = function() {
+  history.pushState = function () {
     originalPushState.apply(history, arguments);
     setTimeout(handleNavigation, 50);
   };
 
-  history.replaceState = function() {
+  history.replaceState = function () {
     originalReplaceState.apply(history, arguments);
     setTimeout(handleNavigation, 50);
   };
@@ -5776,7 +6056,7 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
   const existingCustomStyle = document.getElementById('siege-utils-custom');
   const existingHueStyle = document.getElementById('siege-utils-custom-hue');
 
-  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal' || theme === 'spooky' || theme === 'winter') {
+  if (theme === 'catppuccin' || theme === 'custom' || theme === 'signal' || theme === 'spooky' || theme === 'winter' || theme === 'slack') {
 
     let cssFile = 'catppuccin.css';
     if (theme === 'signal') {
@@ -5785,6 +6065,8 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
       cssFile = 'spooky.css';
     } else if (theme === 'winter') {
       cssFile = 'winter.css';
+    } else if (theme === 'slack') {
+      cssFile = 'slack.css';
     }
 
     const cssUrl = browserAPI.runtime.getURL(cssFile);
@@ -5808,6 +6090,7 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
     }
 
     toggleHues(disableHues);
+    applyModalTextureFix();
     if (theme === 'spooky') {
       queueSpookyJumpScare();
       showSpookyAudioPrompt();
@@ -5819,8 +6102,34 @@ function applyTheme(theme, disableHues = false, customColors = {}, customHue = {
     if (existingCustomStyle) existingCustomStyle.remove();
     if (existingHueStyle) existingHueStyle.remove();
     document.body.classList.remove('no-hues');
+    removeModalTextureFix();
     teardownSpookyJumpScare();
   }
+}
+
+function applyModalTextureFix() {
+  let style = document.getElementById('siege-utils-modal-texture');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'siege-utils-modal-texture';
+    document.head.appendChild(style);
+  }
+
+  style.textContent = `
+    .siege-modal-content,
+    .siege-orders-content,
+    .siege-lb-content,
+    .siege-reasoning-panel,
+    .modal-content {
+      background: var(--ctp-surface0, #313244) url('/assets/parchment-texture-e4dc566e.jpg') repeat !important;
+      background-blend-mode: multiply !important;
+    }
+  `;
+}
+
+function removeModalTextureFix() {
+  const style = document.getElementById('siege-utils-modal-texture');
+  if (style) style.remove();
 }
 
 function applyCustomColors(colors) {
@@ -6446,66 +6755,141 @@ function showVotingFinishedMessage() {
   }
 }
 
+const githubAPI = {
+  async fetchRepoData(repoUrl) {
+    if (!repoUrl || !repoUrl.includes('github.com')) {
+      return null;
+    }
+
+    try {
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
+      if (!match) return null;
+
+      const [, owner, repo] = match;
+      const cleanRepo = repo.replace(/\.git$/, '');
+
+      const [repoData, readmeData, languagesData, commitsData, contentsData] = await Promise.all([
+        fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`).then(r => r.ok ? r.json() : null),
+        fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/readme`).then(r => r.ok ? r.json() : null),
+        fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/languages`).then(r => r.ok ? r.json() : null),
+        fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/commits?per_page=1`).then(r => r.ok ? r.headers.get('Link') : null),
+        fetch(`https://api.codetabs.com/v1/loc?github=${owner}/${cleanRepo}`).then(r => r.ok ? r.json() : null).catch(() => null)
+      ]);
+
+      let readmePreview = '';
+      if (readmeData && readmeData.content) {
+        const decoded = atob(readmeData.content);
+        const lines = decoded.split('\n').slice(0, 15);
+        readmePreview = lines.join('\n');
+      }
+
+      let topLanguage = '';
+      let languagePercentages = [];
+      let totalBytes = 0;
+      if (languagesData) {
+        totalBytes = Object.values(languagesData).reduce((sum, val) => sum + val, 0);
+        languagePercentages = Object.entries(languagesData)
+          .map(([lang, bytes]) => ({ lang, percentage: ((bytes / totalBytes) * 100).toFixed(1), bytes }))
+          .sort((a, b) => parseFloat(b.percentage) - parseFloat(a.percentage));
+        topLanguage = languagePercentages[0]?.lang || '';
+      }
+
+      let commitCount = 0;
+      if (commitsData) {
+        const linkMatch = commitsData.match(/page=(\d+)>; rel="last"/);
+        commitCount = linkMatch ? parseInt(linkMatch[1]) : 1;
+      }
+
+      let linesOfCode = 0;
+      if (contentsData && Array.isArray(contentsData)) {
+        linesOfCode = contentsData.reduce((total, lang) => {
+          return total + (lang.linesOfCode || 0);
+        }, 0);
+      }
+
+      if (linesOfCode === 0 && totalBytes > 0) {
+        linesOfCode = Math.round(totalBytes / 40);
+      }
+
+      const updatedAt = repoData?.updated_at ? new Date(repoData.updated_at) : null;
+      const daysAgo = updatedAt ? Math.floor((Date.now() - updatedAt.getTime()) / (1000 * 60 * 60 * 24)) : null;
+
+      return {
+        topLanguage,
+        languagePercentages: languagePercentages.slice(0, 3),
+        linesOfCode,
+        commitCount,
+        daysAgo,
+        readmePreview,
+        fullReadme: readmeData ? atob(readmeData.content) : ''
+      };
+    } catch (error) {
+      console.error('Error fetching GitHub data:', error);
+      return null;
+    }
+  }
+};
+
 function createVotingInterface(votes, ballotId) {
 
-    const canvas = document.getElementById('voting-canvas');
-    if (canvas) {
-      canvas.style.display = 'none';
-    }
+  const canvas = document.getElementById('voting-canvas');
+  if (canvas) {
+    canvas.style.display = 'none';
+  }
 
-    const uiOverlay = document.querySelector('.ui-overlay');
-    if (uiOverlay) {
-      uiOverlay.style.display = 'none';
-    }
+  const uiOverlay = document.querySelector('.ui-overlay');
+  if (uiOverlay) {
+    uiOverlay.style.display = 'none';
+  }
 
-    const greatHall = document.querySelector('.great-hall');
-    if (greatHall) {
-      greatHall.style.display = 'none';
-    }
+  const greatHall = document.querySelector('.great-hall');
+  if (greatHall) {
+    greatHall.style.display = 'none';
+  }
 
-    const dialogueBox = document.querySelector('.dialogue-box');
-    if (dialogueBox) {
-      dialogueBox.style.display = 'none';
-    }
+  const dialogueBox = document.querySelector('.dialogue-box');
+  if (dialogueBox) {
+    dialogueBox.style.display = 'none';
+  }
 
-    const votingPanel = document.querySelector('.voting-panel');
-    if (votingPanel) {
-      votingPanel.style.display = 'none';
-    }
+  const votingPanel = document.querySelector('.voting-panel');
+  if (votingPanel) {
+    votingPanel.style.display = 'none';
+  }
 
-    const reasoningPanel = document.querySelector('.reasoning-panel');
-    if (reasoningPanel) {
-      reasoningPanel.style.display = 'none';
-    }
+  const reasoningPanel = document.querySelector('.reasoning-panel');
+  if (reasoningPanel) {
+    reasoningPanel.style.display = 'none';
+  }
 
-    const presentingMeeple = document.querySelector('.presenting-meeple');
-    if (presentingMeeple) {
-      presentingMeeple.style.display = 'none';
-    }
+  const presentingMeeple = document.querySelector('.presenting-meeple');
+  if (presentingMeeple) {
+    presentingMeeple.style.display = 'none';
+  }
 
-    const userMeeple = document.querySelector('.user-meeple-container');
-    if (userMeeple) {
-      userMeeple.style.display = 'none';
-    }
+  const userMeeple = document.querySelector('.user-meeple-container');
+  if (userMeeple) {
+    userMeeple.style.display = 'none';
+  }
 
-    const appMain = document.querySelector('.app-main');
-    if (!appMain) {
-      return;
-    }
+  const appMain = document.querySelector('.app-main');
+  if (!appMain) {
+    return;
+  }
 
-    appMain.innerHTML = '';
+  appMain.innerHTML = '';
 
-    const votingContainer = document.createElement('div');
-    votingContainer.id = 'siege-simple-voting';
+  const votingContainer = document.createElement('div');
+  votingContainer.id = 'siege-simple-voting';
 
-    const starAllocations = {};
-    votes.forEach(vote => {
-      starAllocations[vote.id] = vote.star_count || 1;
-    });
+  const starAllocations = {};
+  votes.forEach(vote => {
+    starAllocations[vote.id] = vote.star_count || 1;
+  });
 
-    let totalStars = Object.values(starAllocations).reduce((sum, stars) => sum + stars, 0);
+  let totalStars = Object.values(starAllocations).reduce((sum, stars) => sum + stars, 0);
 
-    votingContainer.innerHTML = `
+  votingContainer.innerHTML = `
       <div class="siege-voting-header">
         <h1>Vote on Week ${votes[0]?.week || ''} Projects</h1>
         <div class="siege-voting-stars-total">
@@ -6531,15 +6915,15 @@ function createVotingInterface(votes, ballotId) {
       </div>
     `;
 
-    appMain.appendChild(votingContainer);
+  appMain.appendChild(votingContainer);
 
-    const projectsList = document.getElementById('siege-projects-list');
-    votes.forEach(vote => {
-      if (!vote.project) return;
+  const projectsList = document.getElementById('siege-projects-list');
+  votes.forEach(async (vote) => {
+    if (!vote.project) return;
 
-      const projectCard = document.createElement('div');
-      projectCard.className = 'siege-project-card';
-      projectCard.innerHTML = `
+    const projectCard = document.createElement('div');
+    projectCard.className = 'siege-project-card';
+    projectCard.innerHTML = `
         <div class="siege-project-header">
           <div>
             <h2 class="siege-project-title">${vote.project.name}</h2>
@@ -6549,9 +6933,28 @@ function createVotingInterface(votes, ballotId) {
 
         <p class="siege-project-description">${vote.project.description || ''}</p>
 
+        <div class="siege-github-stats" id="github-stats-${vote.id}">
+          <div class="siege-github-loading">Loading GitHub data...</div>
+        </div>
+
+        <div class="siege-readme-section" id="readme-${vote.id}" style="display: none;">
+          <button class="siege-readme-toggle" data-vote-id="${vote.id}">
+            <span class="siege-toggle-icon">▼</span> Show README Preview
+          </button>
+          <div class="siege-readme-content" style="display: none;"></div>
+        </div>
+
         <div class="siege-project-links">
           ${vote.project.repo_url ? `<a href="${vote.project.repo_url}" target="_blank" class="siege-project-link">View Code</a>` : ''}
-          ${vote.project.demo_url ? `<a href="${vote.project.demo_url}" target="_blank" class="siege-project-link">Play Project</a>` : ''}
+          ${vote.project.demo_url ? `
+            <div class="siege-demo-link-wrapper">
+              <a href="${vote.project.demo_url}" target="_blank" class="siege-project-link siege-demo-link" data-demo-url="${vote.project.demo_url}">Play Project</a>
+              <div class="siege-demo-preview" id="demo-preview-${vote.id}" style="display: none;">
+                <iframe src="${vote.project.demo_url}" frameborder="0" sandbox="allow-scripts allow-same-origin"></iframe>
+                <div class="siege-demo-preview-label">Preview</div>
+              </div>
+            </div>
+          ` : ''}
         </div>
 
         <div class="siege-star-control">
@@ -6562,150 +6965,219 @@ function createVotingInterface(votes, ballotId) {
         </div>
       `;
 
-      projectsList.appendChild(projectCard);
+    projectsList.appendChild(projectCard);
 
-      renderStars(vote.id, starAllocations[vote.id]);
-    });
+    renderStars(vote.id, starAllocations[vote.id]);
 
-    function renderStars(voteId, count) {
-      const starDisplay = document.getElementById(`stars-${voteId}`);
-      if (!starDisplay) return;
+    if (vote.project.repo_url) {
+      const githubData = await githubAPI.fetchRepoData(vote.project.repo_url);
+      const statsContainer = document.getElementById(`github-stats-${vote.id}`);
+      const readmeSection = document.getElementById(`readme-${vote.id}`);
 
-      starDisplay.innerHTML = '';
-      for (let i = 0; i < 5; i++) {
-        const star = document.createElement('span');
-        star.className = `siege-star-icon ${i < count ? '' : 'empty'}`;
-        star.textContent = '★';
-        starDisplay.appendChild(star);
-      }
-    }
+      if (githubData && statsContainer) {
+        const languagesHTML = githubData.languagePercentages.map(l =>
+          `<span class="siege-lang-tag">${l.lang} ${l.percentage}%</span>`
+        ).join('');
 
-    function updateButtons() {
-      document.querySelectorAll('.siege-star-btn').forEach(btn => {
-        const voteId = parseInt(btn.dataset.voteId);
-        const action = btn.dataset.action;
-        const currentStars = starAllocations[voteId];
+        statsContainer.innerHTML = `
+            <div class="siege-github-info">
+              ${githubData.topLanguage ? `<div class="siege-stat-item"><span class="siege-stat-icon">💻</span> ${githubData.topLanguage}</div>` : ''}
+              ${githubData.linesOfCode > 0 ? `<div class="siege-stat-item"><span class="siege-stat-icon">📝</span> ~${githubData.linesOfCode.toLocaleString()} lines</div>` : ''}
+              ${githubData.commitCount > 0 ? `<div class="siege-stat-item"><span class="siege-stat-icon">📊</span> ${githubData.commitCount} commits</div>` : ''}
+              ${githubData.daysAgo !== null ? `<div class="siege-stat-item"><span class="siege-stat-icon">🕐</span> Updated ${githubData.daysAgo === 0 ? 'today' : githubData.daysAgo === 1 ? 'yesterday' : `${githubData.daysAgo}d ago`}</div>` : ''}
+            </div>
+            ${languagesHTML ? `<div class="siege-languages">${languagesHTML}</div>` : ''}
+          `;
 
-        if (action === 'decrease') {
-          btn.disabled = currentStars <= 1;
-        } else if (action === 'increase') {
-          btn.disabled = currentStars >= 5 || totalStars >= 12;
+        if (githubData.readmePreview && readmeSection) {
+          readmeSection.style.display = 'block';
+          const readmeContent = readmeSection.querySelector('.siege-readme-content');
+          if (readmeContent) {
+            readmeContent.textContent = githubData.readmePreview;
+          }
         }
-      });
-
-      document.getElementById('siege-total-stars').textContent = totalStars;
-
-      const reasoning = document.getElementById('siege-reasoning').value.trim();
-      const submitBtn = document.getElementById('siege-submit-vote');
-      submitBtn.disabled = totalStars !== 12 || !reasoning;
-
-      const errorMsg = document.getElementById('siege-error-msg');
-      if (totalStars !== 12) {
-        errorMsg.textContent = `You must allocate exactly 12 stars (currently ${totalStars})`;
-      } else if (!reasoning) {
-        errorMsg.textContent = 'Please provide reasoning for your votes';
-      } else {
-        errorMsg.textContent = '';
+      } else if (statsContainer) {
+        statsContainer.innerHTML = '';
       }
     }
+  });
 
-    projectsList.addEventListener('click', async (e) => {
-      if (!e.target.classList.contains('siege-star-btn')) return;
+  function renderStars(voteId, count) {
+    const starDisplay = document.getElementById(`stars-${voteId}`);
+    if (!starDisplay) return;
 
-      const voteId = parseInt(e.target.dataset.voteId);
-      const action = e.target.dataset.action;
+    starDisplay.innerHTML = '';
+    for (let i = 0; i < 5; i++) {
+      const star = document.createElement('span');
+      star.className = `siege-star-icon ${i < count ? '' : 'empty'}`;
+      star.textContent = '★';
+      starDisplay.appendChild(star);
+    }
+  }
+
+  function updateButtons() {
+    document.querySelectorAll('.siege-star-btn').forEach(btn => {
+      const voteId = parseInt(btn.dataset.voteId);
+      const action = btn.dataset.action;
       const currentStars = starAllocations[voteId];
 
-      let newStars = currentStars;
-      if (action === 'decrease' && currentStars > 1) {
-        newStars = currentStars - 1;
-        totalStars--;
-      } else if (action === 'increase' && currentStars < 5 && totalStars < 12) {
-        newStars = currentStars + 1;
-        totalStars++;
-      }
-
-      if (newStars !== currentStars) {
-        starAllocations[voteId] = newStars;
-        renderStars(voteId, newStars);
-        updateButtons();
-
-        try {
-          const response = await fetch(`/votes/${voteId}/update_stars`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-            },
-            body: JSON.stringify({ star_count: newStars })
-          });
-
-          if (!response.ok) {
-            console.error('Failed to update stars');
-            if (action === 'decrease') {
-              starAllocations[voteId]++;
-              totalStars++;
-            } else {
-              starAllocations[voteId]--;
-              totalStars--;
-            }
-            renderStars(voteId, starAllocations[voteId]);
-            updateButtons();
-          }
-        } catch (error) {
-          console.error('Error updating stars:', error);
-        }
+      if (action === 'decrease') {
+        btn.disabled = currentStars <= 1;
+      } else if (action === 'increase') {
+        btn.disabled = currentStars >= 5 || totalStars >= 12;
       }
     });
 
-    document.getElementById('siege-reasoning').addEventListener('input', updateButtons);
+    document.getElementById('siege-total-stars').textContent = totalStars;
 
-    document.getElementById('siege-submit-vote').addEventListener('click', async () => {
-      const reasoning = document.getElementById('siege-reasoning').value.trim();
-      const submitBtn = document.getElementById('siege-submit-vote');
+    const reasoning = document.getElementById('siege-reasoning').value.trim();
+    const submitBtn = document.getElementById('siege-submit-vote');
+    submitBtn.disabled = totalStars !== 12 || !reasoning;
 
-      if (totalStars !== 12 || !reasoning) return;
+    const errorMsg = document.getElementById('siege-error-msg');
+    if (totalStars !== 12) {
+      errorMsg.textContent = `You must allocate exactly 12 stars (currently ${totalStars})`;
+    } else if (!reasoning) {
+      errorMsg.textContent = 'Please provide reasoning for your votes';
+    } else {
+      errorMsg.textContent = '';
+    }
+  }
 
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Submitting...';
+  projectsList.addEventListener('click', async (e) => {
+    const readmeToggle = e.target.closest('.siege-readme-toggle');
+    if (readmeToggle) {
+      const voteId = readmeToggle.dataset.voteId;
+      const readmeContent = document.querySelector(`#readme-${voteId} .siege-readme-content`);
+      const toggleIcon = readmeToggle.querySelector('.siege-toggle-icon');
+
+      if (readmeContent) {
+        const isHidden = readmeContent.style.display === 'none';
+        readmeContent.style.display = isHidden ? 'block' : 'none';
+        toggleIcon.textContent = isHidden ? '▲' : '▼';
+        readmeToggle.childNodes[1].textContent = isHidden ? ' Hide README Preview' : ' Show README Preview';
+      }
+      return;
+    }
+
+    if (!e.target.classList.contains('siege-star-btn')) return;
+
+    const voteId = parseInt(e.target.dataset.voteId);
+    const action = e.target.dataset.action;
+    const currentStars = starAllocations[voteId];
+
+    let newStars = currentStars;
+    if (action === 'decrease' && currentStars > 1) {
+      newStars = currentStars - 1;
+      totalStars--;
+    } else if (action === 'increase' && currentStars < 5 && totalStars < 12) {
+      newStars = currentStars + 1;
+      totalStars++;
+    }
+
+    if (newStars !== currentStars) {
+      starAllocations[voteId] = newStars;
+      renderStars(voteId, newStars);
+      updateButtons();
 
       try {
-        if (!ballotId) {
-          console.error('[Siege Utils] Could not find ballot ID');
-          alert('Error: Could not find ballot ID');
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit Votes';
-          return;
-        }
-
-        const response = await fetch(`/ballots/${ballotId}/submit`, {
+        const response = await fetch(`/votes/${voteId}/update_stars`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
           },
-          body: JSON.stringify({ reasoning: reasoning })
+          body: JSON.stringify({ star_count: newStars })
         });
 
-        const data = await response.json();
-
-        if (data.success) {
-          window.location.href = data.redirect_url || '/great-hall';
-        } else {
-          alert('Error submitting ballot: ' + (data.errors || 'Unknown error'));
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit Votes';
+        if (!response.ok) {
+          console.error('Failed to update stars');
+          if (action === 'decrease') {
+            starAllocations[voteId]++;
+            totalStars++;
+          } else {
+            starAllocations[voteId]--;
+            totalStars--;
+          }
+          renderStars(voteId, starAllocations[voteId]);
+          updateButtons();
         }
       } catch (error) {
-        console.error('Error submitting ballot:', error);
-        alert('Error submitting ballot. Please try again.');
+        console.error('Error updating stars:', error);
+      }
+    }
+  });
+
+  projectsList.addEventListener('mouseover', (e) => {
+    const demoLink = e.target.closest('.siege-demo-link');
+    if (demoLink) {
+      const wrapper = demoLink.closest('.siege-demo-link-wrapper');
+      const preview = wrapper?.querySelector('.siege-demo-preview');
+      if (preview) {
+        preview.style.display = 'block';
+      }
+    }
+  });
+
+  projectsList.addEventListener('mouseout', (e) => {
+    const demoLink = e.target.closest('.siege-demo-link');
+    if (demoLink) {
+      const wrapper = demoLink.closest('.siege-demo-link-wrapper');
+      const preview = wrapper?.querySelector('.siege-demo-preview');
+      if (preview) {
+        preview.style.display = 'none';
+      }
+    }
+  });
+
+  document.getElementById('siege-reasoning').addEventListener('input', updateButtons);
+
+  document.getElementById('siege-submit-vote').addEventListener('click', async () => {
+    const reasoning = document.getElementById('siege-reasoning').value.trim();
+    const submitBtn = document.getElementById('siege-submit-vote');
+
+    if (totalStars !== 12 || !reasoning) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+
+    try {
+      if (!ballotId) {
+        console.error('[Siege Utils] Could not find ballot ID');
+        alert('Error: Could not find ballot ID');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Votes';
+        return;
+      }
+
+      const response = await fetch(`/ballots/${ballotId}/submit`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ reasoning: reasoning })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        window.location.href = data.redirect_url || '/great-hall';
+      } else {
+        alert('Error submitting ballot: ' + (data.errors || 'Unknown error'));
         submitBtn.disabled = false;
         submitBtn.textContent = 'Submit Votes';
       }
-    });
+    } catch (error) {
+      console.error('Error submitting ballot:', error);
+      alert('Error submitting ballot. Please try again.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Votes';
+    }
+  });
 
-    updateButtons();
-  }
+  updateButtons();
+}
 
 document.addEventListener('turbo:load', initSimpleVotingInterface);
 document.addEventListener('turbo:render', initSimpleVotingInterface);
@@ -6973,6 +7445,8 @@ const leaderboardRanking = {
           border-radius: 0.375rem;
           font-weight: 700;
           font-size: 0.8rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
         ">
           #${rankData.rank}/ ${rankData.totalUsers}
         </span>
@@ -6980,6 +7454,132 @@ const leaderboardRanking = {
     `;
 
     userNameElement.parentElement.appendChild(rankElement);
+
+    const badge = rankElement.querySelector('.siege-rank-badge');
+    badge.addEventListener('click', () => {
+      leaderboardModal.open(rankData);
+    });
+  }
+};
+
+const leaderboardModal = {
+  isOpen: false,
+  leaderboardData: null,
+  filteredData: null,
+
+  open(rankData) {
+    if (this.isOpen) return;
+
+    this.leaderboardData = rankData.fullLeaderboard || [];
+    this.filteredData = [...this.leaderboardData];
+    this.render();
+    this.isOpen = true;
+  },
+
+  close() {
+    const modal = document.querySelector('#siege-leaderboard-modal');
+    if (modal) {
+      modal.remove();
+    }
+    this.isOpen = false;
+    this.leaderboardData = null;
+    this.filteredData = null;
+  },
+
+  filter(searchTerm) {
+    if (!searchTerm || searchTerm.trim() === '') {
+      this.filteredData = [...this.leaderboardData];
+    } else {
+      const term = searchTerm.toLowerCase();
+      this.filteredData = this.leaderboardData.filter(user =>
+        (user.display_name && user.display_name.toLowerCase().includes(term)) ||
+        (user.name && user.name.toLowerCase().includes(term))
+      );
+    }
+    this.updateList();
+  },
+
+  updateList() {
+    const listContainer = document.querySelector('.siege-leaderboard-list');
+    if (!listContainer) return;
+
+    if (this.filteredData.length === 0) {
+      listContainer.innerHTML = `
+        <div class="siege-lb-empty">
+          No adventurers found matching your search.
+        </div>
+      `;
+      return;
+    }
+
+    listContainer.innerHTML = this.filteredData.map((user, index) => {
+      const isTop3 = user.rank <= 3;
+      const medal = user.rank === 1 ? '👑' : user.rank === 2 ? '🥈' : user.rank === 3 ? '🥉' : '';
+
+      return `
+        <div class="siege-lb-entry ${isTop3 ? 'siege-lb-top3' : ''}" data-rank="${user.rank}">
+          <div class="siege-lb-rank">
+            ${medal ? `<span class="siege-lb-medal">${medal}</span>` : ''}
+            <span class="siege-lb-rank-num">${user.rank}</span>
+          </div>
+          <div class="siege-lb-user">
+            <div class="siege-lb-name">${user.display_name || user.name}</div>
+          </div>
+          <div class="siege-lb-coins">
+            <span class="siege-lb-coin-icon">🪙</span>
+            <span class="siege-lb-coin-amount">${user.coins.toLocaleString()}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  render() {
+    const modal = document.createElement('div');
+    modal.className = 'siege-modal-overlay';
+    modal.id = 'siege-leaderboard-modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="siege-modal-container siege-lb-modal-container">
+        <div class="siege-modal-content siege-lb-content">
+          <div class="siege-lb-header">
+            <h3 class="siege-modal-title">⚔️ Hall of Champions ⚔️</h3>
+            <button class="siege-lb-close">✕</button>
+          </div>
+
+          <div class="siege-lb-search-container">
+            <input
+              type="text"
+              class="siege-leaderboard-search"
+              placeholder="Search adventurers..."
+            />
+          </div>
+
+          <div class="siege-leaderboard-list"></div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeBtn = modal.querySelector('.siege-lb-close');
+    const searchInput = modal.querySelector('.siege-leaderboard-search');
+
+    closeBtn.addEventListener('click', () => this.close());
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) this.close();
+    });
+    searchInput.addEventListener('input', (e) => this.filter(e.target.value));
+
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        this.close();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    this.updateList();
   }
 };
 
@@ -7648,7 +8248,7 @@ const catacombsIntelPanel = {
       return;
     }
 
-    const multiplier = 1.5; 
+    const multiplier = 1.5;
 
     try {
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
@@ -7685,7 +8285,7 @@ const catacombsIntelPanel = {
     try {
       const statsData = JSON.parse(localStorage.getItem('siege-utils-project-stats') || '{}');
       const unshippedData = JSON.parse(localStorage.getItem('siege-utils-unshipped') || '{}');
-      
+
       const userProjects = Object.values(statsData);
       const unshippedProjects = Object.values(unshippedData);
 
@@ -7810,8 +8410,8 @@ const catacombsIntelPanel = {
         let chance;
 
         const adjustedMean = avgHours * (1 + trendSlope * 0.5);
-        const zScore = (goal.hours - adjustedMean) / (stdDev || 1); 
-        
+        const zScore = (goal.hours - adjustedMean) / (stdDev || 1);
+
         if (zScore <= 0) {
           chance = 95 - (Math.abs(zScore) * 15);
         } else if (zScore <= 1.0) {
@@ -8170,7 +8770,7 @@ const catacombsIntelPanel = {
     }
 
     const n = values.length;
-    const trainStart = Math.min(2, n - 1); 
+    const trainStart = Math.min(2, n - 1);
     const algs = {};
 
     const buildSeries = (predictor) => {

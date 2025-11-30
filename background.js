@@ -499,7 +499,8 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
             data: {
               rank: userEntry.rank,
               coins: userEntry.coins,
-              totalUsers: leaderboard.length
+              totalUsers: leaderboard.length,
+              fullLeaderboard: leaderboard
             }
           });
         } else {
