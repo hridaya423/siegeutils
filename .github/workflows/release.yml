@@ -71,6 +71,7 @@ jobs:
         [ -f signal.css ] && cp signal.css temp-chrome-extension/
         [ -f winter.css ] && cp winter.css temp-chrome-extension/
         [ -f spooky.css ] && cp spooky.css temp-chrome-extension/
+        [ -f slack.css ] && cp slack.css temp-chrome-extension/
 
         # Create Chrome ZIP
         cd temp-chrome-extension
@@ -104,6 +105,7 @@ jobs:
         [ -f signal.css ] && cp signal.css temp-firefox-extension/
         [ -f winter.css ] && cp signal.css temp-firefox-extension/
         [ -f spooky.css ] && cp spooky.css temp-firefox-extension/
+        [ -f slack.css ] && cp slack.css temp-firefox-extension/
 
         # Create Firefox ZIP
         cd temp-firefox-extension
