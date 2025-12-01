@@ -7,16 +7,36 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 
 ## Features
 
-- Currently makes the shop less clunkier & more usable following a tabs & grid format.
-- Estimates your reviewer bonus & your avg voter stars
-- Shows coins/h, estimated reviewer bonus, avg stars on project cards & page.
-- Goals, add what you are aiming for in the market, and see your progress towards it, including estimated more hours needed!
-- Projections for unshipped projects for coins, reviewer bonus, avg stars
-- Themes
-- Weekly hour planner
-- Improved navbar
-- Statistics on the keep page!,  See a lot of statistics like total time spent, weekly efficiency & hours chart, etc.
+### Market & Shop Improvements
+- **New Shop Layout**: Transforms the market into a clean, tabbed interface with grid-based item organization
+- **Goals**: Add market items as goals and track your progress with visual progress bars
+- **Progress Visualization**:
+  - Daily goal progress bars
+  - Weekly goal progress bars
+  - Overall goals progress with current vs projected states
 
+### Project Page Enhancements
+- **Efficiency Metrics**: Displays coins/hour, estimated reviewer bonus, and average voter stars directly on project cards
+- **Efficiency Trending**:
+  - Sparkline charts showing efficiency over time
+  - Dynamic comparison against historical weekly averages
+- **Project Projections**: For unshipped projects, shows projected coins, reviewer bonus, and avg stars based on current work
+
+### Keep Page Statistics
+- **Weekly Efficiency Chart**: Chart showing:
+  - Hours tracked per week
+  - Coins/hour efficiency
+  - Total coins earned
+  - Projected values for future weeks with dotted lines
+- **Daily & Weekly goals**: Real-time tracking of daily/weekly goal progress
+- **Stats**: Total time spent, efficiency trends, and historical performance
+- **Weekly Hour Planner**: Plan and track your weekly siege schedule
+- **Themes**: Multiple visual themes to customize your experience
+
+### Analytics & Insights
+- **Efficiency Calculations**: efficiencies for each project
+- **Progress Projections**: Predictive analytics showing future completion based on current pace
+- **Historical Analysis**: Compare current performance against historical weekly data
 
 <img width="194" height="464" alt="image" src="https://github.com/user-attachments/assets/544bada8-ec4c-4ff7-ad61-de721fc10f94" />
 
