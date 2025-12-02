@@ -7,6 +7,21 @@ Mozilla addons: https://addons.mozilla.org/en-US/firefox/addon/siege-utils/
 
 ## Features
 
+# New in week 13:
+- Bets history
+- Bug fixes for everything
+- Readme Preview & demo preview, gh stats on great hall
+- sparkline & trend comparison
+- show projected box inside individual project pages
+- gradients and coins metric to the weekly efficiency graph
+- Daily & weekly progress bars
+- Improved upgrade routes, with comparing routes, next etc.
+- Improved betting estimations & catacomb UI cleaning up, shows predicted payout, and scales mult according to hours
+- View orders
+- Leaderboard ranking & leaderboard modal
+- Make explore useful
+- Other improvements
+
 ### Market & Shop Improvements
 - **New Shop Layout**: Transforms the market into a clean, tabbed interface with grid-based item organization
 - **Goals**: Add market items as goals and track your progress with visual progress bars
