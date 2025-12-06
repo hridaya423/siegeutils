@@ -7217,6 +7217,9 @@ function initSimpleVotingInterface() {
     return;
   }
 
+  // Enable overflow handling for great-hall pages
+  document.body.classList.add('siege-utils-active');
+
 
   function extractVotingData() {
     const scripts = document.querySelectorAll('script');
